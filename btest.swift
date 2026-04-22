@@ -1478,6 +1478,11 @@ class BrowserWebView: WKWebView {
             }
         }
     }
+
+    override func performFindPanelAction(_ sender: Any?) {
+        guard let win = self.window else { return }
+        (NSApp.delegate as? AppDelegate)?.tabs.first(where: { $0.window === win })?.showFindBar()
+    }
 }
 
 // ==========================================
