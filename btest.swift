@@ -1478,6 +1478,11 @@ class BrowserWebView: WKWebView {
             }
         }
     }
+
+    @objc func performFindPanelAction(_ sender: Any?) {
+        guard let win = self.window else { return }
+        (NSApp.delegate as? AppDelegate)?.tab(for: win)?.showFindBar()
+    }
 }
 
 // ==========================================
@@ -1544,7 +1549,124 @@ extension NSToolbarItem.Identifier {
 }
 
 // ==========================================
-// 10. BROWSER TAB
+// 10. FIND BAR
+// ==========================================
+class FindBarView: NSView, NSTextFieldDelegate {
+    let searchField = NSTextField()
+    private let matchLabel = NSTextField(labelWithString: "")
+    private let prevBtn = NSButton()
+    private let nextBtn = NSButton()
+    private let doneBtn = NSButton()
+
+    var onSearch: ((String) -> Void)?
+    var onPrev: (() -> Void)?
+    var onNext: (() -> Void)?
+    var onDone: (() -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.25
+        layer?.shadowRadius = 10
+        layer?.shadowOffset = CGSize(width: 0, height: -3)
+
+        let vev = NSVisualEffectView()
+        vev.material = .popover
+        vev.blendingMode = .behindWindow
+        vev.state = .active
+        vev.wantsLayer = true
+        vev.layer?.cornerRadius = 8
+        vev.layer?.masksToBounds = true
+        vev.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(vev)
+        NSLayoutConstraint.activate([
+            vev.topAnchor.constraint(equalTo: topAnchor), vev.bottomAnchor.constraint(equalTo: bottomAnchor),
+            vev.leadingAnchor.constraint(equalTo: leadingAnchor), vev.trailingAnchor.constraint(equalTo: trailingAnchor)
+        ])
+
+        searchField.placeholderString = "Find…"
+        searchField.bezelStyle = .roundedBezel
+        searchField.font = .systemFont(ofSize: 13)
+        searchField.delegate = self
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
+        matchLabel.font = .systemFont(ofSize: 12)
+        matchLabel.textColor = .secondaryLabelColor
+        matchLabel.alignment = .right
+        matchLabel.isEditable = false; matchLabel.isBordered = false; matchLabel.drawsBackground = false
+        matchLabel.translatesAutoresizingMaskIntoConstraints = false
+        matchLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        let iconCfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        prevBtn.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Previous")?.withSymbolConfiguration(iconCfg)
+        prevBtn.isBordered = false; prevBtn.target = self; prevBtn.action = #selector(prevTapped)
+        prevBtn.translatesAutoresizingMaskIntoConstraints = false
+
+        nextBtn.image = NSImage(systemSymbolName: "chevron.forward", accessibilityDescription: "Next")?.withSymbolConfiguration(iconCfg)
+        nextBtn.isBordered = false; nextBtn.target = self; nextBtn.action = #selector(nextTapped)
+        nextBtn.translatesAutoresizingMaskIntoConstraints = false
+
+        doneBtn.title = "Done"
+        if #available(macOS 14.0, *) { doneBtn.bezelStyle = .push } else { doneBtn.bezelStyle = .rounded }
+        doneBtn.controlSize = .small
+        doneBtn.target = self; doneBtn.action = #selector(doneTapped)
+        doneBtn.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(views: [searchField, matchLabel, prevBtn, nextBtn, doneBtn])
+        stack.orientation = .horizontal; stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 160)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func updateMatchLabel(current: Int, total: Int) {
+        matchLabel.stringValue = total > 0 ? "\(current) of \(total)" : ""
+        prevBtn.isEnabled = total > 0; nextBtn.isEnabled = total > 0
+    }
+
+    func focusSearchField() { window?.makeFirstResponder(searchField) }
+
+    @objc private func prevTapped() { onPrev?() }
+    @objc private func nextTapped() { onNext?() }
+    @objc private func doneTapped() { onDone?() }
+
+    func controlTextDidChange(_ obj: Notification) { onSearch?(searchField.stringValue) }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+        if sel == #selector(NSStandardKeyBindingResponding.insertNewline(_:)) { onNext?(); return true }
+        if sel == #selector(NSStandardKeyBindingResponding.cancelOperation(_:)) { onDone?(); return true }
+        return false
+    }
+}
+
+class FindBarMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var tab: BrowserTab?
+    init(_ tab: BrowserTab) { self.tab = tab; super.init() }
+    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? String, let tab = tab else { return }
+        DispatchQueue.main.async {
+            switch body {
+            case "show": tab.showFindBar()
+            case "next": tab.isFindBarVisible ? tab.navigateMatch(forward: true) : tab.showFindBar()
+            case "prev": tab.isFindBarVisible ? tab.navigateMatch(forward: false) : tab.showFindBar()
+            case "escape": if tab.isFindBarVisible { tab.hideFindBar() }
+            default: break
+            }
+        }
+    }
+}
+
+// ==========================================
+// 11. BROWSER TAB
 // ==========================================
 class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDelegate,
                   WKDownloadDelegate, NSWindowDelegate, NSToolbarDelegate {
@@ -1559,6 +1681,12 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     private var currentFavicon: NSImage?
     private var isSplashVisible = false
     private var splashOverlay: NSView?
+    private var findBar: FindBarView?
+    private var findMatchCount = 0
+    private var findCurrentIndex = 0
+    private var findBarHandler: FindBarMessageHandler?
+    private var isFindBarHandlerRegistered = false
+    var isFindBarVisible: Bool { !(findBar?.isHidden ?? true) }
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]; private var downloadPartURLs: [ObjectIdentifier: URL] = [:]
 
     private var leftGroup: NSStackView!; private var pillWrapper: PillWrapperView!; private var pillIcon: NSImageView!
@@ -1613,6 +1741,29 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         }
     }, 250);
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+
+    private static let findBarInterceptSource = """
+    (function(){
+        window.addEventListener('keydown', function(e){
+            if((e.metaKey||e.ctrlKey)&&!e.altKey){
+                var k=(e.key||'').toLowerCase();
+                if(k==='f'&&!e.shiftKey&&!e.defaultPrevented){
+                    e.preventDefault();
+                    try{webkit.messageHandlers.findBar.postMessage('show');}catch(_){}
+                    return false;
+                }
+                if(k==='g'&&!e.defaultPrevented){
+                    e.preventDefault();
+                    try{webkit.messageHandlers.findBar.postMessage(e.shiftKey?'prev':'next');}catch(_){}
+                    return false;
+                }
+            }
+            if(e.key==='Escape'&&!e.metaKey&&!e.ctrlKey){
+                try{webkit.messageHandlers.findBar.postMessage('escape');}catch(_){}
+            }
+        }, false);
+    })();
+    """
 
     init(parentWindow: NSWindow?, isPrivate: Bool, sessionID: String? = nil, dataStore: WKWebsiteDataStore? = nil,
          configuration: WKWebViewConfiguration? = nil, targetIndex: Int? = nil, focusURL: Bool = true,
@@ -1916,11 +2067,172 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     @objc func setupUserScripts() {
         let ucc = webView.configuration.userContentController
         ucc.removeAllUserScripts()
+        if isFindBarHandlerRegistered {
+            if #available(macOS 11.0, *) {
+                ucc.removeScriptMessageHandler(forName: "findBar", contentWorld: .page)
+            } else {
+                ucc.removeScriptMessageHandler(forName: "findBar")
+            }
+            isFindBarHandlerRegistered = false
+        }
         ucc.addUserScript(self.uaScript)
         ucc.addUserScript(self.ytAdSkipScript)
+        if !isPopup {
+            if findBarHandler == nil { findBarHandler = FindBarMessageHandler(self) }
+            let src = BrowserTab.findBarInterceptSource
+            if #available(macOS 11.0, *) {
+                ucc.add(findBarHandler!, contentWorld: .page, name: "findBar")
+                ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
+            } else {
+                ucc.add(findBarHandler!, name: "findBar")
+                ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+            }
+            isFindBarHandlerRegistered = true
+        }
         UserScriptManager.shared.injectScripts(into: ucc)
     }
-    
+
+    // MARK: - Find in Page
+
+    func showFindBar() {
+        if findBar == nil {
+            let bar = FindBarView()
+            bar.translatesAutoresizingMaskIntoConstraints = false
+            bar.onSearch = { [weak self] q in self?.performSearch(q) }
+            bar.onNext   = { [weak self] in self?.navigateMatch(forward: true) }
+            bar.onPrev   = { [weak self] in self?.navigateMatch(forward: false) }
+            bar.onDone   = { [weak self] in self?.hideFindBar() }
+            rootContainer.addSubview(bar)
+            NSLayoutConstraint.activate([
+                bar.trailingAnchor.constraint(equalTo: rootContainer.trailingAnchor, constant: -16),
+                bar.topAnchor.constraint(equalTo: rootContainer.topAnchor, constant: 10),
+                bar.heightAnchor.constraint(equalToConstant: 38),
+                bar.widthAnchor.constraint(greaterThanOrEqualToConstant: 340)
+            ])
+            findBar = bar
+        }
+        findBar?.isHidden = false
+        DispatchQueue.main.async { [weak self] in self?.findBar?.focusSearchField() }
+        if let q = findBar?.searchField.stringValue, !q.isEmpty { performSearch(q) }
+    }
+
+    func hideFindBar() {
+        findBar?.isHidden = true
+        findMatchCount = 0; findCurrentIndex = 0
+        findBar?.updateMatchLabel(current: 0, total: 0)
+        webView.evaluateJavaScript("window._swbFind && window._swbFind.clear()", completionHandler: nil)
+        window.makeFirstResponder(webView)
+    }
+
+    private func performSearch(_ query: String) {
+        guard !query.isEmpty else {
+            findMatchCount = 0; findCurrentIndex = 0
+            findBar?.updateMatchLabel(current: 0, total: 0)
+            webView.evaluateJavaScript("window._swbFind && window._swbFind.clear()", completionHandler: nil)
+            return
+        }
+        let esc = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        let js = """
+        (function(){
+          var C='_swb_';
+          function escRe(s){return s.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&');}
+          if(!window._swbFind){
+            window._swbFind={
+              count:0,current:-1,
+              search:function(q){
+                this.clear();
+                if(!q)return{count:0,current:-1};
+                var re=new RegExp(escRe(q),'gi');
+                var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{
+                  acceptNode:function(n){
+                    var t=n.parentElement?n.parentElement.tagName:'';
+                    if(t==='SCRIPT'||t==='STYLE'||t==='NOSCRIPT')return NodeFilter.FILTER_REJECT;
+                    return NodeFilter.FILTER_ACCEPT;
+                  }
+                });
+                var nodes=[],n;
+                while((n=walker.nextNode()))nodes.push(n);
+                var cnt=0;
+                nodes.forEach(function(n){
+                  var text=n.textContent;
+                  if(!re.test(text)){re.lastIndex=0;return;}
+                  re.lastIndex=0;
+                  var frag=document.createDocumentFragment(),last=0,m;
+                  while((m=re.exec(text))!==null){
+                    if(m.index>last)frag.appendChild(document.createTextNode(text.slice(last,m.index)));
+                    var mark=document.createElement('mark');
+                    mark.className=C;mark.dataset.i=cnt++;
+                    mark.style.cssText='background:#FFE55C!important;color:inherit!important;border-radius:2px;';
+                    mark.textContent=m[0];frag.appendChild(mark);last=re.lastIndex;
+                  }
+                  if(last<text.length)frag.appendChild(document.createTextNode(text.slice(last)));
+                  n.parentNode.replaceChild(frag,n);
+                });
+                this.count=cnt;this.current=cnt>0?0:-1;
+                if(cnt>0)this._scrollTo(0);
+                return{count:cnt,current:this.current};
+              },
+              next:function(){
+                if(!this.count)return{count:0,current:-1};
+                this.current=(this.current+1)%this.count;
+                this._scrollTo(this.current);
+                return{count:this.count,current:this.current};
+              },
+              prev:function(){
+                if(!this.count)return{count:0,current:-1};
+                this.current=((this.current-1)%this.count+this.count)%this.count;
+                this._scrollTo(this.current);
+                return{count:this.count,current:this.current};
+              },
+              _scrollTo:function(i){
+                var marks=document.querySelectorAll('mark.'+C);
+                marks.forEach(function(m){m.style.background='#FFE55C!important';});
+                if(i>=0&&i<marks.length){
+                  marks[i].style.background='#FF9500!important';
+                  marks[i].scrollIntoView({block:'center',behavior:'smooth'});
+                }
+              },
+              clear:function(){
+                document.querySelectorAll('mark.'+C).forEach(function(m){
+                  var p=m.parentNode;
+                  while(m.firstChild)p.insertBefore(m.firstChild,m);
+                  p.removeChild(m);p.normalize();
+                });
+                this.count=0;this.current=-1;
+              }
+            };
+          }
+          return JSON.stringify(window._swbFind.search("\(esc)"));
+        })()
+        """
+        webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let self, let json = result as? String,
+                  let data = json.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let count = obj["count"] as? Int, let current = obj["current"] as? Int else { return }
+            self.findMatchCount = count; self.findCurrentIndex = current
+            DispatchQueue.main.async {
+                self.findBar?.updateMatchLabel(current: count > 0 ? current + 1 : 0, total: count)
+            }
+        }
+    }
+
+    func navigateMatch(forward: Bool) {
+        let js = "window._swbFind ? JSON.stringify(window._swbFind.\(forward ? "next" : "prev")()) : '{\"count\":0,\"current\":-1}'"
+        webView.evaluateJavaScript(js) { [weak self] result, _ in
+            guard let self, let json = result as? String,
+                  let data = json.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let count = obj["count"] as? Int, let current = obj["current"] as? Int, count > 0 else { return }
+            self.findCurrentIndex = current
+            DispatchQueue.main.async { self.findBar?.updateMatchLabel(current: current + 1, total: count) }
+        }
+    }
+
     private func updateFavicon() {
         guard let urlStr = webView.url?.absoluteString, !urlStr.isEmpty, !urlStr.starts(with: "about:blank"), let host = webView.url?.host else { return }
         let js = "(() => { var links = document.querySelectorAll('link[rel=\"apple-touch-icon\"], link[rel~=\"icon\"], link[rel=\"shortcut icon\"]'); for (var i = 0; i < links.length; i++) { if (links[i].href) return links[i].href; } return window.location.origin + '/favicon.ico'; })();"
@@ -2130,6 +2442,8 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             isSplashVisible = false
             splashOverlay?.isHidden = true
         }
+        findMatchCount = 0; findCurrentIndex = 0
+        findBar?.updateMatchLabel(current: 0, total: 0)
     }
 
     // ---- Error Handling ----
@@ -2360,21 +2674,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ContentBlockerManager.shared.loadAllEnabled()
 
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 48 && event.modifierFlags.contains(.control) {
-                if event.modifierFlags.contains(.shift) { NSApp.keyWindow?.selectPreviousTab(nil) }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Cmd+F — only intercept when WKWebView does NOT have focus.
+            // When WKWebView has focus, let the event reach the page; the bubble-phase
+            // JS listener will call showFindBar() only if the site didn't preventDefault.
+            if event.keyCode == 3 && flags == .command {
+                if let tab = self?.tab(for: NSApp.keyWindow), !tab.isPopup {
+                    let fr = tab.window.firstResponder
+                    let inWebView = (fr as? NSView)?.isDescendant(of: tab.webView) ?? (fr === tab.webView)
+                    if !inWebView { tab.showFindBar(); return nil }
+                }
+            }
+            // Ctrl+Tab / Ctrl+Shift+Tab — tab navigation
+            if event.keyCode == 48 && flags.contains(.control) {
+                if flags.contains(.shift) { NSApp.keyWindow?.selectPreviousTab(nil) }
                 else { NSApp.keyWindow?.selectNextTab(nil) }
                 return nil
             }
-            if event.keyCode == 34 && event.modifierFlags.contains(.command) && event.modifierFlags.contains(.option) {
+            // Cmd+Opt+I — web inspector
+            if event.keyCode == 34 && flags.contains(.command) && flags.contains(.option) {
                 NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
                 return nil
+            }
+            let activeTab = self?.tab(for: NSApp.keyWindow)
+            // Cmd+G / Cmd+Shift+G — next / previous match
+            if event.keyCode == 5 && flags.contains(.command) {
+                if let tab = activeTab, tab.isFindBarVisible {
+                    flags.contains(.shift) ? tab.navigateMatch(forward: false) : tab.navigateMatch(forward: true)
+                    return nil
+                }
+            }
+            // Escape — close find bar
+            if event.keyCode == 53 {
+                if let tab = activeTab, tab.isFindBarVisible { tab.hideFindBar(); return nil }
             }
             return event
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // Walk up the parent-window chain so child windows (dropdowns, pickers)
+    // created by WKWebView still resolve to the owning BrowserTab.
+    func tab(for window: NSWindow?) -> BrowserTab? {
+        var w = window
+        while let candidate = w {
+            if let tab = tabs.first(where: { $0.window === candidate }) { return tab }
+            w = candidate.parent
+        }
+        return nil
+    }
 
     private func existingPrivateSessionID(for window: NSWindow) -> String? {
         let wins = window.tabGroup?.windows ?? [window]
@@ -2425,6 +2775,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() { SettingsWindowController.shared.showSettings() }
 
+    @objc func openFindBar() {
+        if let tab = tab(for: NSApp.keyWindow), !tab.isPopup { tab.showFindBar() }
+    }
+
     @objc func focusURLBar() {
         guard let win = NSApp.keyWindow, let tab = tabs.first(where: { $0.window == win }) else { return }
         win.makeFirstResponder(tab.urlField)
@@ -2470,6 +2824,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(EditMenuActions.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(EditMenuActions.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(EditMenuActions.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(.separator())
+        editMenu.addItem(NSMenuItem(title: "Find…", action: #selector(openFindBar), keyEquivalent: ""))
         editItem.submenu = editMenu
 
         let winItem = NSMenuItem(); mainMenu.addItem(winItem)
