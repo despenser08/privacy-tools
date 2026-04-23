@@ -2713,10 +2713,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // Cmd+Opt+I — web inspector
             if event.keyCode == 34 && flags.contains(.command) && flags.contains(.option) {
-                if let tab = self?.tab(for: NSApp.keyWindow), !tab.isPopup {
-                    tab.window.makeFirstResponder(tab.webView)
-                    NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
-                }
+                if let wv = self?.tab(for: NSApp.keyWindow)?.webView { self?.toggleInspector(for: wv) }
                 return nil
             }
             let activeTab = self?.tab(for: NSApp.keyWindow)
@@ -2817,9 +2814,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showWebInspector(_ sender: Any?) {
-        guard let tab = tab(for: NSApp.keyWindow), !tab.isPopup else { return }
-        tab.window.makeFirstResponder(tab.webView)
-        NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
+        guard let wv = tab(for: NSApp.keyWindow)?.webView else { return }
+        toggleInspector(for: wv)
+    }
+
+    private func toggleInspector(for wv: WKWebView) {
+        // _WKInspector is the reliable path — sendAction(toggleWebInspector:) only
+        // works when a specific internal WebKit subview holds first responder focus.
+        if let insp = wv.value(forKey: "_inspector") as? NSObject {
+            let isOpen = (insp.value(forKey: "isOpen") as? Bool) ?? false
+            insp.perform(isOpen ? Selector(("hide")) : Selector(("show")))
+        }
     }
 
     func setupMenus() {
