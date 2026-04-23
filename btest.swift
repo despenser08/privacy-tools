@@ -1685,6 +1685,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     private var findMatchCount = 0
     private var findCurrentIndex = 0
     private var findBarHandler: FindBarMessageHandler?
+    private var isFindBarHandlerRegistered = false
     var isFindBarVisible: Bool { !(findBar?.isHidden ?? true) }
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]; private var downloadPartURLs: [ObjectIdentifier: URL] = [:]
 
@@ -1741,9 +1742,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     }, 250);
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
 
-    private let findBarInterceptScript = WKUserScript(source: """
+    private static let findBarInterceptSource = """
     (function(){
-        document.addEventListener('keydown', function(e){
+        window.addEventListener('keydown', function(e){
             if((e.metaKey||e.ctrlKey)&&!e.altKey){
                 var k=(e.key||'').toLowerCase();
                 if(k==='f'&&!e.shiftKey){
@@ -1762,7 +1763,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             }
         }, true);
     })();
-    """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+    """
 
     init(parentWindow: NSWindow?, isPrivate: Bool, sessionID: String? = nil, dataStore: WKWebsiteDataStore? = nil,
          configuration: WKWebViewConfiguration? = nil, targetIndex: Int? = nil, focusURL: Bool = true,
@@ -2066,13 +2067,27 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     @objc func setupUserScripts() {
         let ucc = webView.configuration.userContentController
         ucc.removeAllUserScripts()
-        ucc.removeScriptMessageHandler(forName: "findBar")
+        if isFindBarHandlerRegistered {
+            if #available(macOS 11.0, *) {
+                ucc.removeScriptMessageHandler(forName: "findBar", contentWorld: .page)
+            } else {
+                ucc.removeScriptMessageHandler(forName: "findBar")
+            }
+            isFindBarHandlerRegistered = false
+        }
         ucc.addUserScript(self.uaScript)
         ucc.addUserScript(self.ytAdSkipScript)
         if !isPopup {
             if findBarHandler == nil { findBarHandler = FindBarMessageHandler(self) }
-            ucc.add(findBarHandler!, name: "findBar")
-            ucc.addUserScript(self.findBarInterceptScript)
+            let src = BrowserTab.findBarInterceptSource
+            if #available(macOS 11.0, *) {
+                ucc.add(findBarHandler!, contentWorld: .page, name: "findBar")
+                ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
+            } else {
+                ucc.add(findBarHandler!, name: "findBar")
+                ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+            }
+            isFindBarHandlerRegistered = true
         }
         UserScriptManager.shared.injectScripts(into: ucc)
     }
