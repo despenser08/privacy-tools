@@ -1481,7 +1481,7 @@ class BrowserWebView: WKWebView {
 
     @objc func performFindPanelAction(_ sender: Any?) {
         guard let win = self.window else { return }
-        (NSApp.delegate as? AppDelegate)?.tabs.first(where: { $0.window === win })?.showFindBar()
+        (NSApp.delegate as? AppDelegate)?.tab(for: win)?.showFindBar()
     }
 }
 
@@ -2112,7 +2112,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             findBar = bar
         }
         findBar?.isHidden = false
-        findBar?.focusSearchField()
+        DispatchQueue.main.async { [weak self] in self?.findBar?.focusSearchField() }
         if let q = findBar?.searchField.stringValue, !q.isEmpty { performSearch(q) }
     }
 
@@ -2675,30 +2675,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ContentBlockerManager.shared.loadAllEnabled()
 
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 48 && event.modifierFlags.contains(.control) {
-                if event.modifierFlags.contains(.shift) { NSApp.keyWindow?.selectPreviousTab(nil) }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Cmd+F — open find bar (checked first, before anything else)
+            if event.keyCode == 3 && flags == .command {
+                if let tab = self?.tab(for: NSApp.keyWindow), !tab.isPopup {
+                    tab.showFindBar(); return nil
+                }
+            }
+            // Ctrl+Tab / Ctrl+Shift+Tab — tab navigation
+            if event.keyCode == 48 && flags.contains(.control) {
+                if flags.contains(.shift) { NSApp.keyWindow?.selectPreviousTab(nil) }
                 else { NSApp.keyWindow?.selectNextTab(nil) }
                 return nil
             }
-            if event.keyCode == 34 && event.modifierFlags.contains(.command) && event.modifierFlags.contains(.option) {
+            // Cmd+Opt+I — web inspector
+            if event.keyCode == 34 && flags.contains(.command) && flags.contains(.option) {
                 NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
                 return nil
             }
-            let cmd = event.modifierFlags.contains(.command)
-            let shift = event.modifierFlags.contains(.shift)
-            let activeTab = self?.tabs.first(where: { $0.window === NSApp.keyWindow })
-            // Cmd+F — open find bar
-            if event.keyCode == 3 && cmd && !shift {
-                if let tab = activeTab, !tab.isPopup { tab.showFindBar(); return nil }
-            }
-            // Cmd+G — next match; Cmd+Shift+G — previous match
-            if event.keyCode == 5 && cmd {
+            let activeTab = self?.tab(for: NSApp.keyWindow)
+            // Cmd+G / Cmd+Shift+G — next / previous match
+            if event.keyCode == 5 && flags.contains(.command) {
                 if let tab = activeTab, tab.isFindBarVisible {
-                    if shift { tab.navigateMatch(forward: false) } else { tab.navigateMatch(forward: true) }
+                    flags.contains(.shift) ? tab.navigateMatch(forward: false) : tab.navigateMatch(forward: true)
                     return nil
                 }
             }
-            // Escape — close find bar if open
+            // Escape — close find bar
             if event.keyCode == 53 {
                 if let tab = activeTab, tab.isFindBarVisible { tab.hideFindBar(); return nil }
             }
@@ -2707,6 +2710,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // Walk up the parent-window chain so child windows (dropdowns, pickers)
+    // created by WKWebView still resolve to the owning BrowserTab.
+    func tab(for window: NSWindow?) -> BrowserTab? {
+        var w = window
+        while let candidate = w {
+            if let tab = tabs.first(where: { $0.window === candidate }) { return tab }
+            w = candidate.parent
+        }
+        return nil
+    }
 
     private func existingPrivateSessionID(for window: NSWindow) -> String? {
         let wins = window.tabGroup?.windows ?? [window]
@@ -2758,7 +2772,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openSettings() { SettingsWindowController.shared.showSettings() }
 
     @objc func openFindBar() {
-        if let tab = tabs.first(where: { $0.window === NSApp.keyWindow }), !tab.isPopup { tab.showFindBar() }
+        if let tab = tab(for: NSApp.keyWindow), !tab.isPopup { tab.showFindBar() }
     }
 
     @objc func focusURLBar() {
