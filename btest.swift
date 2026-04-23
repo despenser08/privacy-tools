@@ -2037,8 +2037,16 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
 
         if let parent = parentWindow, !isPopup {
             let existing = parent.tabGroup?.windows ?? [parent]
-            if let index = targetIndex, index < existing.count { existing[index].addTabbedWindow(window, ordered: .below) }
-            else { (existing.last ?? parent).addTabbedWindow(window, ordered: .above) }
+            if let index = targetIndex {
+                if index <= 0, let first = existing.first {
+                    first.addTabbedWindow(window, ordered: .below)
+                } else {
+                    let ref = existing[min(index - 1, existing.count - 1)]
+                    ref.addTabbedWindow(window, ordered: .above)
+                }
+            } else {
+                (existing.last ?? parent).addTabbedWindow(window, ordered: .above)
+            }
         } else { if showSplash { window.makeKeyAndOrderFront(nil) } }
 
         DispatchQueue.main.async {
@@ -2335,17 +2343,23 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         
         let isSelected = (window.tabGroup?.selectedWindow == window) || window.tabGroup == nil
         let opener = self.openerWindow
-        let closedImmediately = webView.backForwardList.backList.isEmpty
-        
+        let groupWins = window.tabGroup?.windows ?? []
+
         urlObserver = nil; titleObserver = nil; progressObserver = nil; loadingObserver = nil
         NotificationCenter.default.removeObserver(self)
         window.delegate = nil; webView.navigationDelegate = nil; webView.uiDelegate = nil
         let target = self.window
-        
+
         DispatchQueue.main.async {
             app.tabs.removeAll { $0.window == target }
             if let sid = self.sessionID { if !app.tabs.contains(where: { $0.sessionID == sid }) { app.privateStores.removeValue(forKey: sid) } }
-            if isSelected, let o = opener, o.isVisible, closedImmediately { o.makeKeyAndOrderFront(nil) }
+            guard isSelected else { return }
+            // Chrome-style: activate the previously active tab in the same group
+            if let prev = app.lastKeyWindow, prev !== target, groupWins.contains(prev), prev.isVisible {
+                prev.makeKeyAndOrderFront(nil)
+            } else if let o = opener, o !== target, o.isVisible {
+                o.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
@@ -2666,6 +2680,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var tabs: [BrowserTab] = []
     var closedTabs: [ClosedTab] = []
     var privateStores: [String: WKWebsiteDataStore] = [:]
+    var lastKeyWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -2675,6 +2690,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { NSApplication.shared.activate(ignoringOtherApps: true) }
 
         ContentBlockerManager.shared.loadAllEnabled()
+
+        NotificationCenter.default.addObserver(forName: NSWindow.willResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+            guard let self, let win = note.object as? NSWindow, self.tab(for: win) != nil else { return }
+            self.lastKeyWindow = win
+        }
 
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -2696,8 +2716,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // Cmd+Opt+I — web inspector
             if event.keyCode == 34 && flags.contains(.command) && flags.contains(.option) {
-                if let wv = self?.tab(for: NSApp.keyWindow)?.webView {
-                    NSApp.sendAction(Selector(("toggleWebInspector:")), to: wv, from: nil)
+                if let tab = self?.tab(for: NSApp.keyWindow), !tab.isPopup {
+                    tab.window.makeFirstResponder(tab.webView)
+                    NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
                 }
                 return nil
             }
@@ -2794,9 +2815,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showWebInspector(_ sender: Any?) {
-        if let wv = tab(for: NSApp.keyWindow)?.webView {
-            NSApp.sendAction(Selector(("toggleWebInspector:")), to: wv, from: nil)
-        }
+        guard let tab = tab(for: NSApp.keyWindow), !tab.isPopup else { return }
+        tab.window.makeFirstResponder(tab.webView)
+        NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
     }
 
     func setupMenus() {
