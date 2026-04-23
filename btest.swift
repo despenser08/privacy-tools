@@ -2491,7 +2491,8 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         // Ignore WebKit "Frame load interrupted" (triggered by redirects / policy decisions)
         if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return }
 
-        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+        let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
+                      ?? nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
                       ?? webView.url?.absoluteString ?? ""
         let escapedURL = failedURL.replacingOccurrences(of: "'", with: "\\'")
                                    .replacingOccurrences(of: "\"", with: "&quot;")
@@ -2691,7 +2692,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ContentBlockerManager.shared.loadAllEnabled()
 
-        NotificationCenter.default.addObserver(forName: NSWindow.willResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
             guard let self, let win = note.object as? NSWindow, self.tab(for: win) != nil else { return }
             self.lastKeyWindow = win
         }
