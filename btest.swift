@@ -1648,6 +1648,23 @@ class FindBarView: NSView, NSTextFieldDelegate {
     }
 }
 
+class FindBarMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var tab: BrowserTab?
+    init(_ tab: BrowserTab) { self.tab = tab; super.init() }
+    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? String, let tab = tab else { return }
+        DispatchQueue.main.async {
+            switch body {
+            case "show": tab.showFindBar()
+            case "next": tab.isFindBarVisible ? tab.navigateMatch(forward: true) : tab.showFindBar()
+            case "prev": tab.isFindBarVisible ? tab.navigateMatch(forward: false) : tab.showFindBar()
+            case "escape": if tab.isFindBarVisible { tab.hideFindBar() }
+            default: break
+            }
+        }
+    }
+}
+
 // ==========================================
 // 11. BROWSER TAB
 // ==========================================
@@ -1667,6 +1684,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     private var findBar: FindBarView?
     private var findMatchCount = 0
     private var findCurrentIndex = 0
+    private var findBarHandler: FindBarMessageHandler?
     var isFindBarVisible: Bool { !(findBar?.isHidden ?? true) }
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]; private var downloadPartURLs: [ObjectIdentifier: URL] = [:]
 
@@ -1721,6 +1739,29 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             }
         }
     }, 250);
+    """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+
+    private let findBarInterceptScript = WKUserScript(source: """
+    (function(){
+        document.addEventListener('keydown', function(e){
+            if((e.metaKey||e.ctrlKey)&&!e.altKey){
+                var k=(e.key||'').toLowerCase();
+                if(k==='f'&&!e.shiftKey){
+                    e.preventDefault();e.stopImmediatePropagation();
+                    try{webkit.messageHandlers.findBar.postMessage('show');}catch(_){}
+                    return false;
+                }
+                if(k==='g'){
+                    e.preventDefault();e.stopImmediatePropagation();
+                    try{webkit.messageHandlers.findBar.postMessage(e.shiftKey?'prev':'next');}catch(_){}
+                    return false;
+                }
+            }
+            if(e.key==='Escape'&&!e.metaKey&&!e.ctrlKey){
+                try{webkit.messageHandlers.findBar.postMessage('escape');}catch(_){}
+            }
+        }, true);
+    })();
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
 
     init(parentWindow: NSWindow?, isPrivate: Bool, sessionID: String? = nil, dataStore: WKWebsiteDataStore? = nil,
@@ -2025,8 +2066,14 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     @objc func setupUserScripts() {
         let ucc = webView.configuration.userContentController
         ucc.removeAllUserScripts()
+        ucc.removeScriptMessageHandler(forName: "findBar")
         ucc.addUserScript(self.uaScript)
         ucc.addUserScript(self.ytAdSkipScript)
+        if !isPopup {
+            if findBarHandler == nil { findBarHandler = FindBarMessageHandler(self) }
+            ucc.add(findBarHandler!, name: "findBar")
+            ucc.addUserScript(self.findBarInterceptScript)
+        }
         UserScriptManager.shared.injectScripts(into: ucc)
     }
 
