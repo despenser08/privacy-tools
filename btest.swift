@@ -1747,13 +1747,13 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         window.addEventListener('keydown', function(e){
             if((e.metaKey||e.ctrlKey)&&!e.altKey){
                 var k=(e.key||'').toLowerCase();
-                if(k==='f'&&!e.shiftKey){
-                    e.preventDefault();e.stopImmediatePropagation();
+                if(k==='f'&&!e.shiftKey&&!e.defaultPrevented){
+                    e.preventDefault();
                     try{webkit.messageHandlers.findBar.postMessage('show');}catch(_){}
                     return false;
                 }
-                if(k==='g'){
-                    e.preventDefault();e.stopImmediatePropagation();
+                if(k==='g'&&!e.defaultPrevented){
+                    e.preventDefault();
                     try{webkit.messageHandlers.findBar.postMessage(e.shiftKey?'prev':'next');}catch(_){}
                     return false;
                 }
@@ -1761,7 +1761,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             if(e.key==='Escape'&&!e.metaKey&&!e.ctrlKey){
                 try{webkit.messageHandlers.findBar.postMessage('escape');}catch(_){}
             }
-        }, true);
+        }, false);
     })();
     """
 
@@ -2676,10 +2676,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            // Cmd+F — open find bar (checked first, before anything else)
+            // Cmd+F — only intercept when WKWebView does NOT have focus.
+            // When WKWebView has focus, let the event reach the page; the bubble-phase
+            // JS listener will call showFindBar() only if the site didn't preventDefault.
             if event.keyCode == 3 && flags == .command {
                 if let tab = self?.tab(for: NSApp.keyWindow), !tab.isPopup {
-                    tab.showFindBar(); return nil
+                    let fr = tab.window.firstResponder
+                    let inWebView = (fr as? NSView)?.isDescendant(of: tab.webView) ?? (fr === tab.webView)
+                    if !inWebView { tab.showFindBar(); return nil }
                 }
             }
             // Ctrl+Tab / Ctrl+Shift+Tab — tab navigation
@@ -2821,7 +2825,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(EditMenuActions.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(EditMenuActions.selectAll(_:)), keyEquivalent: "a"))
         editMenu.addItem(.separator())
-        editMenu.addItem(NSMenuItem(title: "Find…", action: #selector(openFindBar), keyEquivalent: "f"))
+        editMenu.addItem(NSMenuItem(title: "Find…", action: #selector(openFindBar), keyEquivalent: ""))
         editItem.submenu = editMenu
 
         let winItem = NSMenuItem(); mainMenu.addItem(winItem)
