@@ -2037,13 +2037,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
 
         if let parent = parentWindow, !isPopup {
             let existing = parent.tabGroup?.windows ?? [parent]
-            if let index = targetIndex {
-                if index <= 0, let first = existing.first {
-                    first.addTabbedWindow(window, ordered: .below)
-                } else {
-                    let ref = existing[min(index - 1, existing.count - 1)]
-                    ref.addTabbedWindow(window, ordered: .above)
-                }
+            if let index = targetIndex, index < existing.count {
+                // Insert to the LEFT of the window currently occupying slot `index`
+                existing[index].addTabbedWindow(window, ordered: .below)
             } else {
                 (existing.last ?? parent).addTabbedWindow(window, ordered: .above)
             }
@@ -2796,7 +2792,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if hasURL, let url = URL(string: last.url) { t.webView.load(URLRequest(url: url)) }
         tabs.append(t)
-        DispatchQueue.main.async { t.window.makeKeyAndOrderFront(nil) }
+        DispatchQueue.main.async {
+            // Use selectedWindow to switch to the restored tab without touching z-order;
+            // makeKeyAndOrderFront would move the tab to position 0 in the tab bar.
+            if let group = t.window.tabGroup { group.selectedWindow = t.window }
+            else { t.window.makeKeyAndOrderFront(nil) }
+        }
     }
 
     @objc func openSettings() { SettingsWindowController.shared.showSettings() }
