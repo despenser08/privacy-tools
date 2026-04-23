@@ -262,7 +262,19 @@ const server = http.createServer((req, res) => {
     };
 
     const proxyReq = http.request(options, (proxyRes) => {
-      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      // Strip hop-by-hop headers that must not be forwarded by a proxy.
+      // Forwarding `trailer` causes ERR_HTTP_TRAILER_INVALID when the
+      // outgoing transfer-encoding doesn't support trailers; forwarding
+      // `transfer-encoding` conflicts with Node's own chunked encoding.
+      const HOP_BY_HOP = new Set([
+        "connection", "keep-alive", "proxy-authenticate",
+        "proxy-authorization", "te", "trailer",
+        "transfer-encoding", "upgrade"
+      ]);
+      const headers = Object.fromEntries(
+        Object.entries(proxyRes.headers).filter(([k]) => !HOP_BY_HOP.has(k.toLowerCase()))
+      );
+      res.writeHead(proxyRes.statusCode, headers);
       proxyRes.pipe(res, { end: true });
     });
 
