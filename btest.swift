@@ -1687,6 +1687,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     private var findBarHandler: FindBarMessageHandler?
     private var isFindBarHandlerRegistered = false
     var isFindBarVisible: Bool { !(findBar?.isHidden ?? true) }
+    // Tracks which UCC instances have "findBar" registered, including those
+    // inherited by popup/new tabs whose isFindBarHandlerRegistered starts false.
+    private static let findBarRegisteredUCCs = NSHashTable<WKUserContentController>.weakObjects()
     private var downloadDestinations: [ObjectIdentifier: URL] = [:]; private var downloadPartURLs: [ObjectIdentifier: URL] = [:]
 
     private var leftGroup: NSStackView!; private var pillWrapper: PillWrapperView!; private var pillIcon: NSImageView!
@@ -2067,13 +2070,16 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     @objc func setupUserScripts() {
         let ucc = webView.configuration.userContentController
         ucc.removeAllUserScripts()
-        if isFindBarHandlerRegistered {
+        // Remove existing "findBar" handler — covers both re-entrant calls on this tab
+        // and popup tabs that inherit a parent UCC which already has it registered.
+        if isFindBarHandlerRegistered || BrowserTab.findBarRegisteredUCCs.contains(ucc) {
             if #available(macOS 11.0, *) {
                 ucc.removeScriptMessageHandler(forName: "findBar", contentWorld: .page)
             } else {
                 ucc.removeScriptMessageHandler(forName: "findBar")
             }
             isFindBarHandlerRegistered = false
+            BrowserTab.findBarRegisteredUCCs.remove(ucc)
         }
         ucc.addUserScript(self.uaScript)
         ucc.addUserScript(self.ytAdSkipScript)
@@ -2088,6 +2094,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                 ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false))
             }
             isFindBarHandlerRegistered = true
+            BrowserTab.findBarRegisteredUCCs.add(ucc)
         }
         UserScriptManager.shared.injectScripts(into: ucc)
     }
