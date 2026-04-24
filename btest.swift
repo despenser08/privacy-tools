@@ -2044,8 +2044,12 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
 
         if let parent = parentWindow, !isPopup {
             let existing = parent.tabGroup?.windows ?? [parent]
-            if let index = targetIndex, index < existing.count { existing[index].addTabbedWindow(window, ordered: .above) } 
-            else { (existing.last ?? parent).addTabbedWindow(window, ordered: .above) }
+            if let index = targetIndex, index < existing.count {
+                // Insert to the LEFT of the window currently occupying slot `index`
+                existing[index].addTabbedWindow(window, ordered: .below)
+            } else {
+                (existing.last ?? parent).addTabbedWindow(window, ordered: .above)
+            }
         } else { if showSplash { window.makeKeyAndOrderFront(nil) } }
 
         DispatchQueue.main.async {
@@ -2333,23 +2337,31 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
 
     func windowWillClose(_ notification: Notification) {
         let app = NSApplication.shared.delegate as! AppDelegate
-        if let url = webView.url?.absoluteString, let group = window.tabGroup, let idx = group.windows.firstIndex(of: window) {
+        if !isPopup {
+            let url = webView.url?.absoluteString ?? ""
+            let idx = window.tabGroup?.windows.firstIndex(of: window) ?? 0
             app.closedTabs.append(ClosedTab(url: url, index: idx, isPrivate: isPrivate, sessionID: sessionID))
         }
         
         let isSelected = (window.tabGroup?.selectedWindow == window) || window.tabGroup == nil
         let opener = self.openerWindow
-        let closedImmediately = webView.backForwardList.backList.isEmpty
-        
+        let groupWins = window.tabGroup?.windows ?? []
+
         urlObserver = nil; titleObserver = nil; progressObserver = nil; loadingObserver = nil
         NotificationCenter.default.removeObserver(self)
         window.delegate = nil; webView.navigationDelegate = nil; webView.uiDelegate = nil
         let target = self.window
-        
+
         DispatchQueue.main.async {
             app.tabs.removeAll { $0.window == target }
             if let sid = self.sessionID { if !app.tabs.contains(where: { $0.sessionID == sid }) { app.privateStores.removeValue(forKey: sid) } }
-            if isSelected, let o = opener, o.isVisible, closedImmediately { o.makeKeyAndOrderFront(nil) }
+            guard isSelected else { return }
+            // Chrome-style: activate the previously active tab in the same group
+            if let prev = app.lastKeyWindow, prev !== target, groupWins.contains(prev), prev.isVisible {
+                prev.makeKeyAndOrderFront(nil)
+            } else if let o = opener, o !== target, o.isVisible {
+                o.makeKeyAndOrderFront(nil)
+            }
         }
     }
 
@@ -2481,7 +2493,8 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         // Ignore WebKit "Frame load interrupted" (triggered by redirects / policy decisions)
         if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return }
 
-        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+        let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
+                      ?? nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
                       ?? webView.url?.absoluteString ?? ""
         let escapedURL = failedURL.replacingOccurrences(of: "'", with: "\\'")
                                    .replacingOccurrences(of: "\"", with: "&quot;")
@@ -2670,6 +2683,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var tabs: [BrowserTab] = []
     var closedTabs: [ClosedTab] = []
     var privateStores: [String: WKWebsiteDataStore] = [:]
+    var lastKeyWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -2679,6 +2693,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async { NSApplication.shared.activate(ignoringOtherApps: true) }
 
         ContentBlockerManager.shared.loadAllEnabled()
+
+        NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+            guard let self, let win = note.object as? NSWindow, self.tab(for: win) != nil else { return }
+            self.lastKeyWindow = win
+        }
 
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -2700,7 +2719,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             // Cmd+Opt+I — web inspector
             if event.keyCode == 34 && flags.contains(.command) && flags.contains(.option) {
-                NSApp.sendAction(Selector(("toggleWebInspector:")), to: nil, from: nil)
+                if let wv = self?.tab(for: NSApp.keyWindow)?.webView { self?.toggleInspector(for: wv) }
                 return nil
             }
             let activeTab = self?.tab(for: NSApp.keyWindow)
@@ -2765,17 +2784,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func reopenClosedTab() {
         guard let last = closedTabs.popLast(), let win = NSApp.keyWindow else { return }
         let hasURL = !last.url.isEmpty && !last.url.starts(with: "about:blank")
+        let t: BrowserTab
         if last.isPrivate {
             let sid: String
             if let orig = last.sessionID, privateStores[orig] != nil { sid = orig }
             else { sid = existingPrivateSessionID(for: win) ?? UUID().uuidString }
-            let t = BrowserTab(parentWindow: win, isPrivate: true, sessionID: sid, dataStore: store(for: sid), targetIndex: last.index, focusURL: false, showSplash: !hasURL)
-            if hasURL, let url = URL(string: last.url) { t.webView.load(URLRequest(url: url)) }
-            tabs.append(t)
+            t = BrowserTab(parentWindow: win, isPrivate: true, sessionID: sid, dataStore: store(for: sid), targetIndex: last.index, focusURL: false, showSplash: !hasURL)
         } else {
-            let t = BrowserTab(parentWindow: win, isPrivate: false, targetIndex: last.index, focusURL: false, showSplash: !hasURL)
-            if hasURL, let url = URL(string: last.url) { t.webView.load(URLRequest(url: url)) }
-            tabs.append(t)
+            t = BrowserTab(parentWindow: win, isPrivate: false, targetIndex: last.index, focusURL: false, showSplash: !hasURL)
+        }
+        if hasURL, let url = URL(string: last.url) { t.webView.load(URLRequest(url: url)) }
+        tabs.append(t)
+        DispatchQueue.main.async {
+            // Use selectedWindow to switch to the restored tab without touching z-order;
+            // makeKeyAndOrderFront would move the tab to position 0 in the tab bar.
+            if let group = t.window.tabGroup { group.selectedWindow = t.window }
+            else { t.window.makeKeyAndOrderFront(nil) }
         }
     }
 
@@ -2793,6 +2817,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func reloadCurrentTab() {
         if let win = NSApp.keyWindow, let tab = tabs.first(where: { $0.window == win }) { tab.reload() }
+    }
+
+    @objc func showWebInspector(_ sender: Any?) {
+        guard let wv = tab(for: NSApp.keyWindow)?.webView else { return }
+        toggleInspector(for: wv)
+    }
+
+    private func toggleInspector(for wv: WKWebView) {
+        // _WKInspector is the reliable path — sendAction(toggleWebInspector:) only
+        // works when a specific internal WebKit subview holds first responder focus.
+        if let insp = wv.value(forKey: "_inspector") as? NSObject {
+            let isOpen = (insp.value(forKey: "isOpen") as? Bool) ?? false
+            insp.perform(isOpen ? Selector(("hide")) : Selector(("show")))
+        }
     }
 
     func setupMenus() {
@@ -2839,6 +2877,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         winMenu.addItem(NSMenuItem(title: "Show Next Tab", action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "}"))
         winMenu.addItem(NSMenuItem(title: "Show Previous Tab", action: #selector(NSWindow.selectPreviousTab(_:)), keyEquivalent: "{"))
         winItem.submenu = winMenu
+
+        let devItem = NSMenuItem(); mainMenu.addItem(devItem)
+        let devMenu = NSMenu(title: "Develop")
+        let inspectorItem = NSMenuItem(title: "Show Web Inspector", action: #selector(showWebInspector(_:)), keyEquivalent: "i")
+        inspectorItem.keyEquivalentModifierMask = [.command, .option]
+        devMenu.addItem(inspectorItem)
+        devItem.submenu = devMenu
 
         NSApp.mainMenu = mainMenu
     }
