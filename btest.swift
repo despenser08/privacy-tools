@@ -1649,10 +1649,16 @@ class FindBarView: NSView, NSTextFieldDelegate {
 }
 
 class FindBarMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var tab: BrowserTab?
-    init(_ tab: BrowserTab) { self.tab = tab; super.init() }
+    static let shared = FindBarMessageHandler()
+    
+    private override init() { super.init() }
+    
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? String, let tab = tab else { return }
+        guard let body = message.body as? String,
+              let webView = message.webView,
+              let delegate = NSApp.delegate as? AppDelegate,
+              let tab = delegate.tabs.first(where: { $0.webView === webView }) else { return }
+        
         DispatchQueue.main.async {
             switch body {
             case "show": tab.showFindBar()
@@ -1684,8 +1690,6 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     private var findBar: FindBarView?
     private var findMatchCount = 0
     private var findCurrentIndex = 0
-    private var findBarHandler: FindBarMessageHandler?
-    private var isFindBarHandlerRegistered = false
     var isFindBarVisible: Bool { !(findBar?.isHidden ?? true) }
     // Tracks which UCC instances have "findBar" registered, including those
     // inherited by popup/new tabs whose isFindBarHandlerRegistered starts false.
@@ -2070,31 +2074,26 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     @objc func setupUserScripts() {
         let ucc = webView.configuration.userContentController
         ucc.removeAllUserScripts()
-        // Remove existing "findBar" handler — covers both re-entrant calls on this tab
-        // and popup tabs that inherit a parent UCC which already has it registered.
-        if isFindBarHandlerRegistered || BrowserTab.findBarRegisteredUCCs.contains(ucc) {
-            if #available(macOS 11.0, *) {
-                ucc.removeScriptMessageHandler(forName: "findBar", contentWorld: .page)
-            } else {
-                ucc.removeScriptMessageHandler(forName: "findBar")
-            }
-            isFindBarHandlerRegistered = false
-            BrowserTab.findBarRegisteredUCCs.remove(ucc)
+
+        // Unconditionally remove the handler to prevent crashes on shared configurations
+        if #available(macOS 11.0, *) {
+            ucc.removeScriptMessageHandler(forName: "findBar", contentWorld: .page)
+        } else {
+            ucc.removeScriptMessageHandler(forName: "findBar")
         }
+
         ucc.addUserScript(self.uaScript)
         ucc.addUserScript(self.ytAdSkipScript)
+
         if !isPopup {
-            if findBarHandler == nil { findBarHandler = FindBarMessageHandler(self) }
             let src = BrowserTab.findBarInterceptSource
             if #available(macOS 11.0, *) {
-                ucc.add(findBarHandler!, contentWorld: .page, name: "findBar")
+                ucc.add(FindBarMessageHandler.shared, contentWorld: .page, name: "findBar")
                 ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
             } else {
-                ucc.add(findBarHandler!, name: "findBar")
+                ucc.add(FindBarMessageHandler.shared, name: "findBar")
                 ucc.addUserScript(WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: false))
             }
-            isFindBarHandlerRegistered = true
-            BrowserTab.findBarRegisteredUCCs.add(ucc)
         }
         UserScriptManager.shared.injectScripts(into: ucc)
     }
