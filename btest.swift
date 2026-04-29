@@ -68,16 +68,6 @@ private func formatBytes(_ n: Int64) -> String {
     return ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
 }
 
-private let safariUA =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-    "AppleWebKit/605.1.15 (KHTML, like Gecko) " +
-    "Version/26.0 Safari/605.1.15"
-
-private let discordUA =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-    "AppleWebKit/605.1.15 (KHTML, like Gecko) " +
-    "Version/17.4 Safari/605.1.15"
-
 // Centralized Notification for reloading scripts across all tabs
 extension Notification.Name {
     static let reloadBrowserScripts = Notification.Name("reloadBrowserScripts")
@@ -576,6 +566,137 @@ class HistoryManager {
 }
 
 // ==========================================
+// 3.5. USER AGENT MANAGER
+// ==========================================
+enum UAType: String, Codable, CaseIterable {
+    case webkitDefault = "WebKit Default"
+    case safari26 = "Safari 26.0"
+    case safari17 = "Safari 17.4 (Legacy)"
+    case custom = "Custom"
+}
+
+struct UARule: Codable, Equatable {
+    var domain: String
+    var type: UAType
+    var customString: String
+}
+
+class UserAgentManager {
+    static let shared = UserAgentManager()
+    
+    var rules: [UARule] = []
+    
+    let safari26UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+    let safari17UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+    
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: "SBUARules"),
+           let saved = try? JSONDecoder().decode([UARule].self, from: data) {
+            rules = saved
+        }
+    }
+    
+    func save() {
+        if let data = try? JSONEncoder().encode(rules) {
+            UserDefaults.standard.set(data, forKey: "SBUARules")
+        }
+        // Notify tabs to refresh their injected JS on next load
+        NotificationCenter.default.post(name: .reloadBrowserScripts, object: nil)
+    }
+    
+    func resolveUA(for host: String) -> String? {
+        for rule in rules {
+            if matches(host: host, ruleDomain: rule.domain) {
+                switch rule.type {
+                case .webkitDefault: return nil
+                case .safari26: return safari26UA
+                case .safari17: return safari17UA
+                case .custom: return rule.customString.isEmpty ? nil : rule.customString
+                }
+            }
+        }
+        return nil // Global fallback
+    }
+    
+        private func matches(host: String, ruleDomain: String) -> Bool {
+        let cleanHost = host.lowercased()
+        let cleanRule = ruleDomain.lowercased()
+        
+        if cleanRule.hasPrefix("*.") {
+            let base = String(cleanRule.dropFirst(2))
+            return cleanHost == base || cleanHost.hasSuffix("." + base)
+        }
+        return cleanHost == cleanRule
+    }
+
+    // Generates a dynamic JS script to spoof navigator properties based on rules
+    func generateJSScript() -> WKUserScript {
+        var rulesDict: [[String: String]] = []
+        for rule in rules {
+            let ua = resolveUA(for: rule.domain.replacingOccurrences(of: "*.", with: "")) ?? ""
+            let appVer: String
+            
+            if rule.type == .safari17 {
+                appVer = "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+            } else if rule.type == .safari26 {
+                appVer = "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+            } else if rule.type == .custom {
+                appVer = ua.replacingOccurrences(of: "Mozilla/", with: "")
+            } else {
+                appVer = "" // WebKit default
+            }
+            
+            rulesDict.append([
+                "domain": rule.domain.lowercased(),
+                "ua": ua,
+                "appVer": appVer,
+                "isDefault": rule.type == .webkitDefault ? "true" : "false"
+            ])
+        }
+        
+        // Add a global fallback rule
+        rulesDict.append(["domain": "*", "ua": safari26UA, "appVer": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15", "isDefault": "false"])
+        
+        let json = (try? String(data: JSONEncoder().encode(rulesDict), encoding: .utf8)) ?? "[]"
+        
+        let js = """
+        (function() {
+            var host = window.location.hostname.toLowerCase();
+            var rules = \(json);
+            
+            var matchedRule = null;
+            for (var i = 0; i < rules.length; i++) {
+                var ruleDomain = rules[i].domain;
+                if (ruleDomain === "*") { 
+                    if (!matchedRule) matchedRule = rules[i];
+                    break;
+                }
+                
+                if (ruleDomain.startsWith("*.")) {
+                    var base = ruleDomain.substring(2);
+                    if (host === base || host.endsWith("." + base)) {
+                        matchedRule = rules[i]; break;
+                    }
+                } else if (host === ruleDomain) {
+                    matchedRule = rules[i]; break;
+                }
+            }
+            
+            if (!matchedRule || matchedRule.isDefault === "true") return;
+            
+            try {
+                Object.defineProperty(navigator, 'userAgent',   { get: function(){ return matchedRule.ua; }, configurable: true });
+                Object.defineProperty(navigator, 'appVersion',  { get: function(){ return matchedRule.appVer; }, configurable: true });
+                Object.defineProperty(navigator, 'vendor',      { get: function(){ return 'Apple Computer, Inc.'; }, configurable: true });
+                Object.defineProperty(navigator, 'platform',    { get: function(){ return 'MacIntel'; }, configurable: true });
+            } catch(e) {}
+        })();
+        """
+        return WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+    }
+}
+
+// ==========================================
 // 4. CONTENT BLOCKER MANAGER
 // ==========================================
 struct FilterListInfo: Codable {
@@ -931,6 +1052,12 @@ class SettingsWindowController: NSObject {
     private var scriptsView: NSView!
     private var networkView: NSView!
 
+    private var userAgentsView: NSView!
+    private var uaListStack: NSStackView!
+    private var uaDomainInput: NSTextField!
+    private var uaTypePopup: NSPopUpButton!
+    private var uaCustomInput: NSTextField!
+
     // Blocker UI State
     private var statusLabels: [String: NSTextField] = [:]
     private var toggleButtons: [String: NSSwitch] = [:]
@@ -959,7 +1086,7 @@ class SettingsWindowController: NSObject {
         w.isReleasedWhenClosed = false
         self.window = w
 
-        segmentedControl = NSSegmentedControl(labels: ["Content Blockers", "User Scripts", "Network"], trackingMode: .selectOne, target: self, action: #selector(tabChanged(_:)))
+        segmentedControl = NSSegmentedControl(labels: ["Content Blockers", "User Scripts", "Network", "User Agents"], trackingMode: .selectOne, target: self, action: #selector(tabChanged(_:)))
         segmentedControl.selectedSegment = 0
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
 
@@ -980,6 +1107,7 @@ class SettingsWindowController: NSObject {
         buildBlockersView()
         buildScriptsView()
         buildNetworkView()
+        buildUserAgentsView()
         tabChanged(segmentedControl)
     }
 
@@ -988,7 +1116,8 @@ class SettingsWindowController: NSObject {
         let activeView: NSView
         if sender.selectedSegment == 0 { activeView = blockersView }
         else if sender.selectedSegment == 1 { activeView = scriptsView }
-        else { activeView = networkView }
+        else if sender.selectedSegment == 2 { activeView = networkView }
+        else { activeView = userAgentsView }
         
         containerView.addSubview(activeView)
         NSLayoutConstraint.activate([
@@ -1033,6 +1162,136 @@ class SettingsWindowController: NSObject {
             stack.topAnchor.constraint(equalTo: networkView.topAnchor),
             stack.leadingAnchor.constraint(equalTo: networkView.leadingAnchor)
         ])
+    }
+
+    // --- User Agents View Building ---
+    private func buildUserAgentsView() {
+        userAgentsView = NSView(); userAgentsView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // 1. INPUT FORM (Top)
+        uaDomainInput = NSTextField(); uaDomainInput.placeholderString = "Domain (e.g., *.example.com)"
+        uaDomainInput.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        
+        uaTypePopup = NSPopUpButton(title: "", target: self, action: #selector(uaTypeChanged(_:)))
+        uaTypePopup.addItems(withTitles: UAType.allCases.map { $0.rawValue })
+        uaTypePopup.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        
+        uaCustomInput = NSTextField(); uaCustomInput.placeholderString = "Custom UA String..."
+        uaCustomInput.isEnabled = false // Disabled by default until 'Custom' is selected
+        uaCustomInput.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        
+        let addBtn = NSButton(title: "Add Rule", target: self, action: #selector(addUARule))
+        addBtn.bezelStyle = .push
+        
+        let inputRow1 = NSStackView(views: [uaDomainInput, uaTypePopup, addBtn])
+        inputRow1.orientation = .horizontal; inputRow1.spacing = 10
+        
+        let inputRow2 = NSStackView(views: [uaCustomInput])
+        inputRow2.orientation = .horizontal
+        
+        let formStack = NSStackView(views: [inputRow1, inputRow2])
+        formStack.orientation = .vertical; formStack.alignment = .leading; formStack.spacing = 10
+        formStack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        
+        let sep1 = NSBox(); sep1.boxType = .separator
+        
+        // 2. SCROLLING LIST (Bottom)
+        uaListStack = NSStackView(); uaListStack.orientation = .vertical; uaListStack.alignment = .leading; uaListStack.spacing = 0
+        uaListStack.translatesAutoresizingMaskIntoConstraints = false
+        refreshUARulesList()
+        
+        let flipHost = FlippedView(); flipHost.translatesAutoresizingMaskIntoConstraints = false; flipHost.addSubview(uaListStack)
+        let scrollView = NSScrollView(); scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.hasVerticalScroller = true; scrollView.autohidesScrollers = true; scrollView.drawsBackground = false; scrollView.documentView = flipHost
+
+        NSLayoutConstraint.activate([
+            uaListStack.topAnchor.constraint(equalTo: flipHost.topAnchor), uaListStack.leadingAnchor.constraint(equalTo: flipHost.leadingAnchor),
+            uaListStack.trailingAnchor.constraint(equalTo: flipHost.trailingAnchor), uaListStack.bottomAnchor.constraint(equalTo: flipHost.bottomAnchor),
+            flipHost.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+        ])
+        
+        let root = NSStackView(views: [formStack, sep1, scrollView])
+        root.orientation = .vertical; root.spacing = 0; root.translatesAutoresizingMaskIntoConstraints = false
+        userAgentsView.addSubview(root)
+        
+        NSLayoutConstraint.activate([ 
+            root.topAnchor.constraint(equalTo: userAgentsView.topAnchor), root.bottomAnchor.constraint(equalTo: userAgentsView.bottomAnchor),
+            root.leadingAnchor.constraint(equalTo: userAgentsView.leadingAnchor), root.trailingAnchor.constraint(equalTo: userAgentsView.trailingAnchor),
+            sep1.widthAnchor.constraint(equalTo: root.widthAnchor),
+            inputRow2.widthAnchor.constraint(equalTo: formStack.widthAnchor, constant: -32) // Stretch custom input
+        ])
+    }
+
+    private func refreshUARulesList() {
+        uaListStack.subviews.forEach { $0.removeFromSuperview() }
+        
+        for rule in UserAgentManager.shared.rules {
+            let row = NSView(); row.translatesAutoresizingMaskIntoConstraints = false
+            
+            let domainLabel = NSTextField(labelWithString: rule.domain); domainLabel.font = .systemFont(ofSize: 12, weight: .bold)
+            domainLabel.translatesAutoresizingMaskIntoConstraints = false
+            
+            let typeLabel = NSTextField(labelWithString: rule.type.rawValue); typeLabel.font = .systemFont(ofSize: 11); typeLabel.textColor = .secondaryLabelColor
+            typeLabel.translatesAutoresizingMaskIntoConstraints = false
+            
+            let delBtn = NSButton(title: "Delete", target: self, action: #selector(deleteUARule(_:))); delBtn.bezelStyle = .inline
+            delBtn.controlSize = .small; delBtn.contentTintColor = .systemRed; delBtn.translatesAutoresizingMaskIntoConstraints = false
+            delBtn.identifier = NSUserInterfaceItemIdentifier(rule.domain) // Tie button to the domain
+            
+            row.addSubview(domainLabel); row.addSubview(typeLabel); row.addSubview(delBtn)
+            NSLayoutConstraint.activate([
+                row.heightAnchor.constraint(equalToConstant: 40),
+                domainLabel.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16), domainLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                typeLabel.leadingAnchor.constraint(equalTo: domainLabel.trailingAnchor, constant: 12), typeLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                delBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16), delBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            ])
+            
+            uaListStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: uaListStack.widthAnchor).isActive = true
+            
+            let sep = NSBox(); sep.boxType = .separator; sep.translatesAutoresizingMaskIntoConstraints = false
+            uaListStack.addArrangedSubview(sep)
+            sep.widthAnchor.constraint(equalTo: uaListStack.widthAnchor).isActive = true
+        }
+    }
+
+    // --- User Agent UI Actions ---
+    @objc private func uaTypeChanged(_ sender: NSPopUpButton) {
+        let isCustom = sender.titleOfSelectedItem == UAType.custom.rawValue
+        uaCustomInput.isEnabled = isCustom
+        if !isCustom { uaCustomInput.stringValue = "" }
+    }
+
+    @objc private func addUARule() {
+        let domain = uaDomainInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !domain.isEmpty else { return }
+        
+        guard let title = uaTypePopup.titleOfSelectedItem, let type = UAType(rawValue: title) else { return }
+        
+        let customStr = uaCustomInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if type == .custom && customStr.isEmpty { return } // Prevent empty custom strings
+        
+        // Remove existing rule for this domain if it exists to avoid duplicates
+        UserAgentManager.shared.rules.removeAll { $0.domain.lowercased() == domain.lowercased() }
+        
+        let newRule = UARule(domain: domain.lowercased(), type: type, customString: customStr)
+        UserAgentManager.shared.rules.append(newRule)
+        UserAgentManager.shared.save()
+        
+        // Reset Inputs
+        uaDomainInput.stringValue = ""
+        uaCustomInput.stringValue = ""
+        uaTypePopup.selectItem(at: 0)
+        uaTypeChanged(uaTypePopup)
+        
+        refreshUARulesList()
+    }
+
+    @objc private func deleteUARule(_ sender: NSButton) {
+        guard let domain = sender.identifier?.rawValue else { return }
+        UserAgentManager.shared.rules.removeAll { $0.domain == domain }
+        UserAgentManager.shared.save()
+        refreshUARulesList()
     }
     
     @objc private func saveProxySettings() {
@@ -1427,7 +1686,7 @@ class FaviconManager {
         if let cached = cache[host] { completion(cached); return }
         guard let url = URL(string: iconURLString) else { completion(nil); return }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 5.0; request.setValue(safariUA, forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 5.0;
         
         ProxyManager.shared.getURLSession().dataTask(with: request) { data, response, _ in
             if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode), let data = data, let original = NSImage(data: data) {
@@ -1682,6 +1941,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     let isPrivate: Bool; let isPopup: Bool; let sessionID: String?
     weak var openerWindow: NSWindow? 
 
+    private var currentManagedUA: String? = nil
     var urlObserver: NSKeyValueObservation?; var titleObserver: NSKeyValueObservation?
     var progressObserver: NSKeyValueObservation?; var loadingObserver: NSKeyValueObservation?
     private var currentFavicon: NSImage?
@@ -1699,25 +1959,6 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     private var leftGroup: NSStackView!; private var pillWrapper: PillWrapperView!; private var pillIcon: NSImageView!
     private var urlLeadingToIcon: NSLayoutConstraint!; private var urlLeadingToPill: NSLayoutConstraint!
     private var rightGroup: NSStackView!; private var backBtn: ToolbarButton!; private var fwdBtn: ToolbarButton!
-
-    private let uaScript = WKUserScript(source: """
-    (function() {
-        var host = window.location.hostname;
-        var isDiscord = (host === 'discord.com' || host.endsWith('.discord.com'));
-        
-        var ua = isDiscord ? '\(discordUA)' : '\(safariUA)';
-        var appVer = isDiscord 
-            ? '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15'
-            : '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
-            
-        try {
-            Object.defineProperty(navigator, 'userAgent',   { get: function(){ return ua; }, configurable: true });
-            Object.defineProperty(navigator, 'appVersion',  { get: function(){ return appVer; }, configurable: true });
-            Object.defineProperty(navigator, 'vendor',      { get: function(){ return 'Apple Computer, Inc.'; }, configurable: true });
-            Object.defineProperty(navigator, 'platform',    { get: function(){ return 'MacIntel'; }, configurable: true });
-        } catch(e) {}
-    })();
-    """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
 
     private let ytAdSkipScript = WKUserScript(source: """
     setInterval(function() {
@@ -1884,7 +2125,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         }()
 
         webView = BrowserWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = self; webView.uiDelegate = self; webView.allowsBackForwardNavigationGestures = true; webView.customUserAgent = safariUA
+        webView.navigationDelegate = self; webView.uiDelegate = self; webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) { webView.isInspectable = true }
 
         // Setup unified scripts pipeline (UA, UserScripts)
@@ -2082,7 +2323,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             ucc.removeScriptMessageHandler(forName: "findBar")
         }
 
-        ucc.addUserScript(self.uaScript)
+        ucc.addUserScript(UserAgentManager.shared.generateJSScript())
         ucc.addUserScript(self.ytAdSkipScript)
 
         if !isPopup {
@@ -2403,13 +2644,19 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if action.targetFrame?.isMainFrame == true,
            let url = action.request.url, let host = url.host {
-            let isDiscord = (host == "discord.com" || host.hasSuffix(".discord.com"))
-            let desiredUA = isDiscord ? discordUA : safariUA
+            let desiredUA = UserAgentManager.shared.resolveUA(for: host)
 
-            if webView.customUserAgent != desiredUA {
+            if self.currentManagedUA != desiredUA {
+                self.currentManagedUA = desiredUA
                 webView.customUserAgent = desiredUA
                 decisionHandler(.cancel)
-                webView.load(action.request)
+                
+                var newRequest = action.request
+                newRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
+                
+                DispatchQueue.main.async {
+                    self.webView.load(newRequest)
+                }
                 return
             }
         }
