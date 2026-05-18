@@ -95,7 +95,7 @@ private final class PillWrapperView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.cornerRadius = 10
-        layer?.masksToBounds = true 
+        layer?.masksToBounds = true
         progressLayer.anchorPoint = CGPoint(x: 0, y: 0)
         progressLayer.opacity = 0
         layer?.addSublayer(progressLayer)
@@ -117,12 +117,12 @@ private final class PillWrapperView: NSView {
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.15)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        
+
         let targetWidth = bounds.width * CGFloat(progress)
         progressLayer.bounds = CGRect(x: 0, y: 0, width: targetWidth, height: 3)
         progressLayer.position = CGPoint(x: 0, y: 0)
         progressLayer.opacity = (showProgress && progress > 0) ? 1.0 : 0.0
-        
+
         CATransaction.commit()
     }
 
@@ -241,14 +241,14 @@ final class DownloadItem: NSObject {
 
         // 3. BUTTONS
         let sym = NSImage.SymbolConfiguration(pointSize: 13, weight: .light)
-        
+
         finderBtn = NSButton()
         finderBtn.bezelStyle = .inline; finderBtn.isBordered = false
         finderBtn.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Show")?.withSymbolConfiguration(sym)
         finderBtn.isEnabled = false
         finderBtn.contentTintColor = .tertiaryLabelColor
         finderBtn.translatesAutoresizingMaskIntoConstraints = false
-        
+
         cancelBtn = NSButton()
         cancelBtn.bezelStyle = .inline; cancelBtn.isBordered = false
         cancelBtn.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Cancel")?.withSymbolConfiguration(sym)
@@ -258,7 +258,7 @@ final class DownloadItem: NSObject {
         // 4. MASTER ROW (Absolute Cage)
         let mainRow = NSView()
         mainRow.translatesAutoresizingMaskIntoConstraints = false
-        
+
         mainRow.addSubview(iconView)
         mainRow.addSubview(nameLabel)
         mainRow.addSubview(sizeLabel)
@@ -451,13 +451,13 @@ class DownloadManager: NSObject {
         container.alignment = .leading
         container.spacing = 0
         container.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 8, right: 12)
-        
+
         container.addArrangedSubview(headerRow)
         container.setCustomSpacing(8, after: headerRow)
         container.addArrangedSubview(headerSep)
         container.setCustomSpacing(0, after: headerSep)
         container.addArrangedSubview(scrollView)
-        
+
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 420))
         container.frame = contentView.bounds
         container.autoresizingMask = [.width, .height]
@@ -492,23 +492,23 @@ class DownloadManager: NSObject {
         DispatchQueue.main.async {
             let hadItems = !self.itemsStack.arrangedSubviews.isEmpty
             self.itemsStack.insertView(item.rowView, at: 0, in: .top)
-            
+
             // STRICTLY PIN THE ROW TO BOTH THE LEFT AND RIGHT SIDES OF THE POPOVER
-            NSLayoutConstraint.activate([ 
+            NSLayoutConstraint.activate([
                 item.rowView.leadingAnchor.constraint(equalTo: self.itemsStack.leadingAnchor),
                 item.rowView.trailingAnchor.constraint(equalTo: self.itemsStack.trailingAnchor)
             ])
-            
+
             if hadItems {
                 let sep = NSBox(); sep.boxType = .separator
                 sep.translatesAutoresizingMaskIntoConstraints = false
                 self.itemsStack.insertView(sep, at: 1, in: .top)
-                NSLayoutConstraint.activate([ 
+                NSLayoutConstraint.activate([
                     sep.leadingAnchor.constraint(equalTo: self.itemsStack.leadingAnchor),
                     sep.trailingAnchor.constraint(equalTo: self.itemsStack.trailingAnchor)
                 ])
             }
-            
+
             self.items[id] = item
             self.scrollView.contentView.scroll(to: .zero)
         }
@@ -525,6 +525,13 @@ class DownloadManager: NSObject {
     }
     func markFailed(for download: WKDownload) {
         DispatchQueue.main.async { self.items[ObjectIdentifier(download)]?.markFailed() }
+    }
+
+    func clearHistory() {
+        DispatchQueue.main.async {
+            self.items.removeAll()
+            self.itemsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        }
     }
 }
 
@@ -563,6 +570,11 @@ class HistoryManager {
         }
         return bestMatch
     }
+
+    func clearHistory() {
+        history.removeAll()
+        UserDefaults.standard.removeObject(forKey: "SBFrequency")
+    }
 }
 
 // ==========================================
@@ -583,19 +595,19 @@ struct UARule: Codable, Equatable {
 
 class UserAgentManager {
     static let shared = UserAgentManager()
-    
+
     var rules: [UARule] = []
-    
+
     let safari26UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
     let safari17UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-    
+
     private init() {
         if let data = UserDefaults.standard.data(forKey: "SBUARules"),
            let saved = try? JSONDecoder().decode([UARule].self, from: data) {
             rules = saved
         }
     }
-    
+
     func save() {
         if let data = try? JSONEncoder().encode(rules) {
             UserDefaults.standard.set(data, forKey: "SBUARules")
@@ -603,7 +615,7 @@ class UserAgentManager {
         // Notify tabs to refresh their injected JS on next load
         NotificationCenter.default.post(name: .reloadBrowserScripts, object: nil)
     }
-    
+
     func resolveUA(for host: String) -> String? {
         for rule in rules {
             if matches(host: host, ruleDomain: rule.domain) {
@@ -617,11 +629,11 @@ class UserAgentManager {
         }
         return nil // Global fallback
     }
-    
+
         private func matches(host: String, ruleDomain: String) -> Bool {
         let cleanHost = host.lowercased()
         let cleanRule = ruleDomain.lowercased()
-        
+
         if cleanRule.hasPrefix("*.") {
             let base = String(cleanRule.dropFirst(2))
             return cleanHost == base || cleanHost.hasSuffix("." + base)
@@ -635,7 +647,7 @@ class UserAgentManager {
         for rule in rules {
             let ua = resolveUA(for: rule.domain.replacingOccurrences(of: "*.", with: "")) ?? ""
             let appVer: String
-            
+
             if rule.type == .safari17 {
                 appVer = "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
             } else if rule.type == .safari26 {
@@ -645,7 +657,7 @@ class UserAgentManager {
             } else {
                 appVer = "" // WebKit default
             }
-            
+
             rulesDict.append([
                 "domain": rule.domain.lowercased(),
                 "ua": ua,
@@ -653,25 +665,25 @@ class UserAgentManager {
                 "isDefault": rule.type == .webkitDefault ? "true" : "false"
             ])
         }
-        
+
         // Add a global fallback rule
         rulesDict.append(["domain": "*", "ua": safari26UA, "appVer": "5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15", "isDefault": "false"])
-        
+
         let json = (try? String(data: JSONEncoder().encode(rulesDict), encoding: .utf8)) ?? "[]"
-        
+
         let js = """
         (function() {
             var host = window.location.hostname.toLowerCase();
             var rules = \(json);
-            
+
             var matchedRule = null;
             for (var i = 0; i < rules.length; i++) {
                 var ruleDomain = rules[i].domain;
-                if (ruleDomain === "*") { 
+                if (ruleDomain === "*") {
                     if (!matchedRule) matchedRule = rules[i];
                     break;
                 }
-                
+
                 if (ruleDomain.startsWith("*.")) {
                     var base = ruleDomain.substring(2);
                     if (host === base || host.endsWith("." + base)) {
@@ -681,9 +693,9 @@ class UserAgentManager {
                     matchedRule = rules[i]; break;
                 }
             }
-            
+
             if (!matchedRule || matchedRule.isDefault === "true") return;
-            
+
             try {
                 Object.defineProperty(navigator, 'userAgent',   { get: function(){ return matchedRule.ua; }, configurable: true });
                 Object.defineProperty(navigator, 'appVersion',  { get: function(){ return matchedRule.appVer; }, configurable: true });
@@ -712,25 +724,25 @@ class ContentBlockerManager {
     static let shared = ContentBlockerManager()
 
     private(set) var lists: [FilterListInfo] = [
-        FilterListInfo(id: "ublock-filters", name: "uBlock filters", category: "uBlock Origin", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "ublock-filters", name: "uBlock filters", category: "uBlock Origin", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/ublock-filters.json")!),
-        FilterListInfo(id: "ublock-badware", name: "uBlock filters - Badware risks", category: "uBlock Origin", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "ublock-badware", name: "uBlock filters - Badware risks", category: "uBlock Origin", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/ublock-badware.json")!),
-        FilterListInfo(id: "ublock-privacy", name: "uBlock filters - Privacy", category: "uBlock Origin", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "ublock-privacy", name: "uBlock filters - Privacy", category: "uBlock Origin", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/ublock-privacy.json")!),
-        FilterListInfo(id: "ublock-quick-fixes", name: "uBlock filters - Quick fixes", category: "uBlock Origin", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "ublock-quick-fixes", name: "uBlock filters - Quick fixes", category: "uBlock Origin", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/ublock-quick-fixes.json")!),
-        FilterListInfo(id: "ublock-unbreak", name: "uBlock filters - Unbreak", category: "uBlock Origin", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "ublock-unbreak", name: "uBlock filters - Unbreak", category: "uBlock Origin", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/ublock-unbreak.json")!),
 
-        FilterListInfo(id: "easylist", name: "EasyList", category: "EasyList", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "easylist", name: "EasyList", category: "EasyList", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/easylist.json")!),
-        FilterListInfo(id: "easyprivacy", name: "EasyPrivacy", category: "EasyList", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "easyprivacy", name: "EasyPrivacy", category: "EasyList", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/easyprivacy.json")!),
 
-        FilterListInfo(id: "listkr", name: "List-KR", category: "Miscellaneous", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "listkr", name: "List-KR", category: "Miscellaneous", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://list-kr-webkit.pages.dev/listkr-unified.json")!),
-        FilterListInfo(id: "peter-lowe", name: "Peter Lowe's Ad and tracking server list", category: "Miscellaneous", enabled: true, lastUpdated: nil, 
+        FilterListInfo(id: "peter-lowe", name: "Peter Lowe's Ad and tracking server list", category: "Miscellaneous", enabled: true, lastUpdated: nil,
                        url: URL(string: "https://github.com/bnema/ublock-webkit-filters/releases/latest/download/peter-lowe.json")!),
     ]
 
@@ -759,7 +771,7 @@ class ContentBlockerManager {
         if let idx = lists.firstIndex(where: { $0.id == id }) {
             lists[idx].enabled = enabled
             saveState()
-            
+
             if enabled {
                 downloadAndCompile(listID: id)
             } else {
@@ -772,36 +784,36 @@ class ContentBlockerManager {
     func downloadAndCompile(listID: String, completion: ((Bool, String) -> Void)? = nil) {
         guard let idx = lists.firstIndex(where: { $0.id == listID }) else { return }
         let info = lists[idx]
-        
+
         URLSession.shared.dataTask(with: info.url) { data, response, error in
             if let err = error {
                 DispatchQueue.main.async { completion?(false, "Download failed: \(err.localizedDescription)") }
                 return
             }
-            
+
             // Validate it's an actual file, preventing WebKit Error 6
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
                 DispatchQueue.main.async { completion?(false, "HTTP Error \(httpResponse.statusCode): Not found") }
                 return
             }
-            
+
             guard let data = data, let rawJSON = String(data: data, encoding: .utf8) else {
                 DispatchQueue.main.async { completion?(false, "Invalid JSON data received") }
                 return
             }
-            
+
             self.store?.compileContentRuleList(forIdentifier: listID, encodedContentRuleList: rawJSON) { ruleList, error in
                 if let err = error {
                     print("[Blocker] Compilation error for \(listID): \(err.localizedDescription)")
                     DispatchQueue.main.async { completion?(false, "Compilation failed: \(err.localizedDescription)") }
                     return
                 }
-                
+
                 guard let ruleList = ruleList else {
                     DispatchQueue.main.async { completion?(false, "Rule list was nil after compilation") }
                     return
                 }
-                
+
                 DispatchQueue.main.async {
                     self.compiledRules[listID] = [ruleList]
                     self.lists[idx].lastUpdated = Date()
@@ -818,7 +830,7 @@ class ContentBlockerManager {
         for tab in app.tabs {
             let ucc = tab.webView.configuration.userContentController
             ucc.removeAllContentRuleLists()
-            
+
             for info in lists where info.enabled {
                 if let rules = compiledRules[info.id] {
                     for rl in rules {
@@ -893,7 +905,7 @@ class UserScriptManager {
     static let shared = UserScriptManager()
 
     private(set) var scripts: [UserScriptMeta] = []
-    
+
     let scriptsDir: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("SwiftBrowse/UserScripts", isDirectory: true)
@@ -910,7 +922,7 @@ class UserScriptManager {
         let ytFilename = "youtube-ad-skipper.user.js"
         let ytFile = scriptsDir.appendingPathComponent(ytFilename)
         let didSeed = UserDefaults.standard.bool(forKey: "SBSeededUserScripts")
-        
+
         if !didSeed && !FileManager.default.fileExists(atPath: ytFile.path) {
             let ytCode = """
             // ==UserScript==
@@ -937,9 +949,9 @@ class UserScriptManager {
     func loadScripts() {
         scripts.removeAll()
         let savedMeta = loadPersistedMeta()
-        
+
         guard let files = try? FileManager.default.contentsOfDirectory(at: scriptsDir, includingPropertiesForKeys: nil) else { return }
-        
+
         for file in files where file.pathExtension == "js" {
             let filename = file.lastPathComponent
             if let content = try? String(contentsOf: file, encoding: .utf8) {
@@ -956,7 +968,7 @@ class UserScriptManager {
         var name = "Unnamed Script"
         var desc = "No description provided."
         var matches = [String]()
-        
+
         let lines = js.components(separatedBy: .newlines)
         for line in lines {
             let t = line.trimmingCharacters(in: .whitespaces)
@@ -1016,9 +1028,9 @@ class UserScriptManager {
         for meta in scripts where meta.enabled {
             let fileURL = scriptsDir.appendingPathComponent(meta.filename)
             guard let rawJS = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-            
+
             let jsRegexes = meta.matches.map { convertMatchToJSRegex($0) }.joined(separator: ", ")
-            
+
             let safeWrapper = """
             (function() {
                 try {
@@ -1030,7 +1042,7 @@ class UserScriptManager {
                 } catch(e) { console.error('SwiftBrowse Script Error (\(meta.name)):', e); }
             })();
             """
-            
+
             let wkScript = WKUserScript(source: safeWrapper, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
             controller.addUserScript(wkScript)
         }
@@ -1058,6 +1070,8 @@ class SettingsWindowController: NSObject {
     private var uaTypePopup: NSPopUpButton!
     private var uaCustomInput: NSTextField!
 
+    private var privacyView: NSView!
+
     // Blocker UI State
     private var statusLabels: [String: NSTextField] = [:]
     private var toggleButtons: [String: NSSwitch] = [:]
@@ -1065,7 +1079,7 @@ class SettingsWindowController: NSObject {
     private var progressIndicators: [String: NSProgressIndicator] = [:]
     private var updateAllBtn: NSButton!
     private var globalStatusLabel: NSTextField!
-    
+
     // Proxy UI State
     private var proxyEnableSwitch: NSSwitch!
     private var proxyHostField: NSTextField!
@@ -1086,7 +1100,7 @@ class SettingsWindowController: NSObject {
         w.isReleasedWhenClosed = false
         self.window = w
 
-        segmentedControl = NSSegmentedControl(labels: ["Content Blockers", "User Scripts", "Network", "User Agents"], trackingMode: .selectOne, target: self, action: #selector(tabChanged(_:)))
+        segmentedControl = NSSegmentedControl(labels: ["Content Blockers", "User Scripts", "Network", "User Agents", "Privacy"], trackingMode: .selectOne, target: self, action: #selector(tabChanged(_:)))
         segmentedControl.selectedSegment = 0
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1097,7 +1111,7 @@ class SettingsWindowController: NSObject {
         root.orientation = .vertical
         root.spacing = 10
         root.edgeInsets = NSEdgeInsets(top: 16, left: 0, bottom: 0, right: 0)
-        
+
         w.contentView = root
         NSLayoutConstraint.activate([
             containerView.widthAnchor.constraint(equalTo: root.widthAnchor),
@@ -1108,6 +1122,7 @@ class SettingsWindowController: NSObject {
         buildScriptsView()
         buildNetworkView()
         buildUserAgentsView()
+        buildPrivacyView()
         tabChanged(segmentedControl)
     }
 
@@ -1117,8 +1132,9 @@ class SettingsWindowController: NSObject {
         if sender.selectedSegment == 0 { activeView = blockersView }
         else if sender.selectedSegment == 1 { activeView = scriptsView }
         else if sender.selectedSegment == 2 { activeView = networkView }
-        else { activeView = userAgentsView }
-        
+        else if sender.selectedSegment == 3 { activeView = userAgentsView }
+        else { activeView = privacyView }
+
         containerView.addSubview(activeView)
         NSLayoutConstraint.activate([
             activeView.topAnchor.constraint(equalTo: containerView.topAnchor),
@@ -1131,32 +1147,32 @@ class SettingsWindowController: NSObject {
     // --- Network / Proxy View ---
     private func buildNetworkView() {
         networkView = NSView(); networkView.translatesAutoresizingMaskIntoConstraints = false
-        
+
         let config = ProxyManager.shared.config
-        
+
         proxyEnableSwitch = NSSwitch()
         proxyEnableSwitch.state = config.isEnabled ? .on : .off
-        
+
         proxyHostField = NSTextField(string: config.host)
         proxyHostField.widthAnchor.constraint(equalToConstant: 200).isActive = true
-        
+
         proxyPortField = NSTextField(string: "\(config.port)")
         proxyPortField.widthAnchor.constraint(equalToConstant: 80).isActive = true
-        
+
         let enableRow = NSStackView(views: [NSTextField(labelWithString: "Enable Web Proxy:"), proxyEnableSwitch])
         let hostRow = NSStackView(views: [NSTextField(labelWithString: "Proxy Host:"), proxyHostField])
         let portRow = NSStackView(views: [NSTextField(labelWithString: "Proxy Port:"), proxyPortField])
-        
+
         let saveBtn = NSButton(title: "Save & Apply Proxy Settings", target: self, action: #selector(saveProxySettings))
         saveBtn.bezelStyle = .rounded
-        
+
         let stack = NSStackView(views: [enableRow, hostRow, portRow, saveBtn])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 15
         stack.edgeInsets = NSEdgeInsets(top: 30, left: 30, bottom: 30, right: 30)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        
+
         networkView.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: networkView.topAnchor),
@@ -1167,39 +1183,39 @@ class SettingsWindowController: NSObject {
     // --- User Agents View Building ---
     private func buildUserAgentsView() {
         userAgentsView = NSView(); userAgentsView.translatesAutoresizingMaskIntoConstraints = false
-        
+
         // 1. INPUT FORM (Top)
         uaDomainInput = NSTextField(); uaDomainInput.placeholderString = "Domain (e.g., *.example.com)"
         uaDomainInput.widthAnchor.constraint(equalToConstant: 180).isActive = true
-        
+
         uaTypePopup = NSPopUpButton(title: "", target: self, action: #selector(uaTypeChanged(_:)))
         uaTypePopup.addItems(withTitles: UAType.allCases.map { $0.rawValue })
         uaTypePopup.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        
+
         uaCustomInput = NSTextField(); uaCustomInput.placeholderString = "Custom UA String..."
         uaCustomInput.isEnabled = false // Disabled by default until 'Custom' is selected
         uaCustomInput.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        
+
         let addBtn = NSButton(title: "Add Rule", target: self, action: #selector(addUARule))
         addBtn.bezelStyle = .push
-        
+
         let inputRow1 = NSStackView(views: [uaDomainInput, uaTypePopup, addBtn])
         inputRow1.orientation = .horizontal; inputRow1.spacing = 10
-        
+
         let inputRow2 = NSStackView(views: [uaCustomInput])
         inputRow2.orientation = .horizontal
-        
+
         let formStack = NSStackView(views: [inputRow1, inputRow2])
         formStack.orientation = .vertical; formStack.alignment = .leading; formStack.spacing = 10
         formStack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        
+
         let sep1 = NSBox(); sep1.boxType = .separator
-        
+
         // 2. SCROLLING LIST (Bottom)
         uaListStack = NSStackView(); uaListStack.orientation = .vertical; uaListStack.alignment = .leading; uaListStack.spacing = 0
         uaListStack.translatesAutoresizingMaskIntoConstraints = false
         refreshUARulesList()
-        
+
         let flipHost = FlippedView(); flipHost.translatesAutoresizingMaskIntoConstraints = false; flipHost.addSubview(uaListStack)
         let scrollView = NSScrollView(); scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true; scrollView.autohidesScrollers = true; scrollView.drawsBackground = false; scrollView.documentView = flipHost
@@ -1209,12 +1225,12 @@ class SettingsWindowController: NSObject {
             uaListStack.trailingAnchor.constraint(equalTo: flipHost.trailingAnchor), uaListStack.bottomAnchor.constraint(equalTo: flipHost.bottomAnchor),
             flipHost.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
         ])
-        
+
         let root = NSStackView(views: [formStack, sep1, scrollView])
         root.orientation = .vertical; root.spacing = 0; root.translatesAutoresizingMaskIntoConstraints = false
         userAgentsView.addSubview(root)
-        
-        NSLayoutConstraint.activate([ 
+
+        NSLayoutConstraint.activate([
             root.topAnchor.constraint(equalTo: userAgentsView.topAnchor), root.bottomAnchor.constraint(equalTo: userAgentsView.bottomAnchor),
             root.leadingAnchor.constraint(equalTo: userAgentsView.leadingAnchor), root.trailingAnchor.constraint(equalTo: userAgentsView.trailingAnchor),
             sep1.widthAnchor.constraint(equalTo: root.widthAnchor),
@@ -1224,20 +1240,20 @@ class SettingsWindowController: NSObject {
 
     private func refreshUARulesList() {
         uaListStack.subviews.forEach { $0.removeFromSuperview() }
-        
+
         for rule in UserAgentManager.shared.rules {
             let row = NSView(); row.translatesAutoresizingMaskIntoConstraints = false
-            
+
             let domainLabel = NSTextField(labelWithString: rule.domain); domainLabel.font = .systemFont(ofSize: 12, weight: .bold)
             domainLabel.translatesAutoresizingMaskIntoConstraints = false
-            
+
             let typeLabel = NSTextField(labelWithString: rule.type.rawValue); typeLabel.font = .systemFont(ofSize: 11); typeLabel.textColor = .secondaryLabelColor
             typeLabel.translatesAutoresizingMaskIntoConstraints = false
-            
+
             let delBtn = NSButton(title: "Delete", target: self, action: #selector(deleteUARule(_:))); delBtn.bezelStyle = .inline
             delBtn.controlSize = .small; delBtn.contentTintColor = .systemRed; delBtn.translatesAutoresizingMaskIntoConstraints = false
             delBtn.identifier = NSUserInterfaceItemIdentifier(rule.domain) // Tie button to the domain
-            
+
             row.addSubview(domainLabel); row.addSubview(typeLabel); row.addSubview(delBtn)
             NSLayoutConstraint.activate([
                 row.heightAnchor.constraint(equalToConstant: 40),
@@ -1245,10 +1261,10 @@ class SettingsWindowController: NSObject {
                 typeLabel.leadingAnchor.constraint(equalTo: domainLabel.trailingAnchor, constant: 12), typeLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
                 delBtn.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16), delBtn.centerYAnchor.constraint(equalTo: row.centerYAnchor),
             ])
-            
+
             uaListStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: uaListStack.widthAnchor).isActive = true
-            
+
             let sep = NSBox(); sep.boxType = .separator; sep.translatesAutoresizingMaskIntoConstraints = false
             uaListStack.addArrangedSubview(sep)
             sep.widthAnchor.constraint(equalTo: uaListStack.widthAnchor).isActive = true
@@ -1265,25 +1281,25 @@ class SettingsWindowController: NSObject {
     @objc private func addUARule() {
         let domain = uaDomainInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !domain.isEmpty else { return }
-        
+
         guard let title = uaTypePopup.titleOfSelectedItem, let type = UAType(rawValue: title) else { return }
-        
+
         let customStr = uaCustomInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if type == .custom && customStr.isEmpty { return } // Prevent empty custom strings
-        
+
         // Remove existing rule for this domain if it exists to avoid duplicates
         UserAgentManager.shared.rules.removeAll { $0.domain.lowercased() == domain.lowercased() }
-        
+
         let newRule = UARule(domain: domain.lowercased(), type: type, customString: customStr)
         UserAgentManager.shared.rules.append(newRule)
         UserAgentManager.shared.save()
-        
+
         // Reset Inputs
         uaDomainInput.stringValue = ""
         uaCustomInput.stringValue = ""
         uaTypePopup.selectItem(at: 0)
         uaTypeChanged(uaTypePopup)
-        
+
         refreshUARulesList()
     }
 
@@ -1293,14 +1309,14 @@ class SettingsWindowController: NSObject {
         UserAgentManager.shared.save()
         refreshUARulesList()
     }
-    
+
     @objc private func saveProxySettings() {
         let portInt = Int(proxyPortField.stringValue) ?? 8081
         let config = ProxyConfigData(isEnabled: proxyEnableSwitch.state == .on, host: proxyHostField.stringValue, port: portInt)
         ProxyManager.shared.save(config: config)
-        
+
         NotificationCenter.default.post(name: .proxySettingsChanged, object: nil)
-        
+
         let alert = NSAlert()
         alert.messageText = "Proxy Settings Saved"
         alert.informativeText = "Settings applied to future connections and tabs."
@@ -1311,16 +1327,16 @@ class SettingsWindowController: NSObject {
     private func buildBlockersView() {
         blockersView = NSView()
         blockersView.translatesAutoresizingMaskIntoConstraints = false
-        
+
         let contentStack = NSStackView()
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
         contentStack.spacing = 15
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        
+
         var currentCategory = ""
         var currentBox: NSStackView?
-        
+
         for info in ContentBlockerManager.shared.lists {
             if info.category != currentCategory {
                 currentCategory = info.category
@@ -1328,25 +1344,25 @@ class SettingsWindowController: NSObject {
                 catLabel.font = .boldSystemFont(ofSize: 13)
                 catLabel.textColor = .secondaryLabelColor
                 contentStack.addArrangedSubview(catLabel)
-                
+
                 let box = NSStackView()
                 box.orientation = .vertical
                 box.alignment = .leading
                 box.spacing = 8
                 box.translatesAutoresizingMaskIntoConstraints = false
-                
+
                 contentStack.addArrangedSubview(box)
                 // Stretch the category box to the full width of the container
                 box.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
                 currentBox = box
             }
-            
+
             let row = NSStackView()
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = 10
             row.translatesAutoresizingMaskIntoConstraints = false
-            
+
             let toggle = NSSwitch()
             toggle.state = info.enabled ? .on : .off
             toggle.target = self
@@ -1354,10 +1370,10 @@ class SettingsWindowController: NSObject {
             toggle.identifier = NSUserInterfaceItemIdentifier(info.id)
             toggle.controlSize = .small
             toggleButtons[info.id] = toggle
-            
+
             let nameLabel = NSTextField(labelWithString: info.name)
             nameLabel.font = .systemFont(ofSize: 12, weight: .medium)
-            
+
             let ts: String
             if let d = info.lastUpdated {
                 let fmt = DateFormatter(); fmt.dateStyle = .short; fmt.timeStyle = .short
@@ -1365,93 +1381,93 @@ class SettingsWindowController: NSObject {
             } else {
                 ts = "Not yet downloaded"
             }
-            
+
             let statusLabel = NSTextField(labelWithString: ts)
             statusLabel.font = .systemFont(ofSize: 10)
             statusLabel.textColor = .tertiaryLabelColor
             statusLabels[info.id] = statusLabel
-            
+
             let spinner = NSProgressIndicator()
             spinner.style = .spinning
             spinner.controlSize = .small
             spinner.isDisplayedWhenStopped = false
             spinner.translatesAutoresizingMaskIntoConstraints = false
             progressIndicators[info.id] = spinner
-            
+
             let updateBtn = NSButton(title: "Update", target: self, action: #selector(updateSingleList(_:)))
             updateBtn.bezelStyle = .inline
             updateBtn.controlSize = .small
             updateBtn.identifier = NSUserInterfaceItemIdentifier(info.id)
             updateBtn.isEnabled = info.enabled
             updateButtons[info.id] = updateBtn
-            
+
             // THE INVISIBLE SPACER: Pushes everything after it to the right
             let spacer = NSView()
             spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            
+
             row.addArrangedSubview(toggle)
             row.addArrangedSubview(nameLabel)
             row.addArrangedSubview(spacer) // <--- Insert spacer here
             row.addArrangedSubview(spinner)
             row.addArrangedSubview(statusLabel)
             row.addArrangedSubview(updateBtn)
-            
+
             currentBox?.addArrangedSubview(row)
-            
+
             // Stretch the row to the full width of the category box
             row.widthAnchor.constraint(equalTo: currentBox!.widthAnchor).isActive = true
         }
-        
+
         let sep = NSBox(); sep.boxType = .separator
         sep.translatesAutoresizingMaskIntoConstraints = false
         contentStack.addArrangedSubview(sep)
         sep.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-        
+
         let bottomRow = NSStackView()
         bottomRow.orientation = .horizontal
         bottomRow.alignment = .centerY
         bottomRow.spacing = 10
         bottomRow.translatesAutoresizingMaskIntoConstraints = false
-        
+
         updateAllBtn = NSButton(title: "Update All Enabled", target: self, action: #selector(updateAllLists))
         updateAllBtn.bezelStyle = .push
         updateAllBtn.controlSize = .regular
-        
+
         globalStatusLabel = NSTextField(labelWithString: "\(ContentBlockerManager.shared.enabledCount()) lists enabled")
         globalStatusLabel.font = .systemFont(ofSize: 11)
         globalStatusLabel.textColor = .secondaryLabelColor
-        
+
         // Pushes label to the left, button to the right
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        
+
         bottomRow.addArrangedSubview(globalStatusLabel)
         bottomRow.addArrangedSubview(bottomSpacer)
         bottomRow.addArrangedSubview(updateAllBtn)
-        
+
         contentStack.addArrangedSubview(bottomRow)
         bottomRow.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-        
+
         let flipHost = FlippedView()
         flipHost.translatesAutoresizingMaskIntoConstraints = false
         flipHost.addSubview(contentStack)
-        
+
         NSLayoutConstraint.activate([
             contentStack.topAnchor.constraint(equalTo: flipHost.topAnchor, constant: 20),
             contentStack.leadingAnchor.constraint(equalTo: flipHost.leadingAnchor, constant: 30),
             contentStack.trailingAnchor.constraint(equalTo: flipHost.trailingAnchor, constant: -30),
             contentStack.bottomAnchor.constraint(equalTo: flipHost.bottomAnchor, constant: -20)
         ])
-        
+
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.documentView = flipHost
-        
+
         blockersView.addSubview(scrollView)
-        
+
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: blockersView.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: blockersView.leadingAnchor),
@@ -1504,17 +1520,17 @@ class SettingsWindowController: NSObject {
 
     @objc private func updateSingleList(_ sender: NSButton) {
         guard let id = sender.identifier?.rawValue else { return }
-        
+
         sender.isEnabled = false
         statusLabels[id]?.stringValue = "Downloading…"
         statusLabels[id]?.textColor = .tertiaryLabelColor
         progressIndicators[id]?.startAnimation(nil) // Spin
-        
+
         ContentBlockerManager.shared.downloadAndCompile(listID: id) { [weak self] ok, reason in
             DispatchQueue.main.async {
                 sender.isEnabled = true
                 self?.progressIndicators[id]?.stopAnimation(nil) // Hide Spin
-                
+
                 if ok, let info = ContentBlockerManager.shared.lists.first(where: { $0.id == id }), let d = info.lastUpdated {
                     let fmt = DateFormatter(); fmt.dateStyle = .short; fmt.timeStyle = .short
                     self?.statusLabels[id]?.stringValue = "Updated: \(fmt.string(from: d))"
@@ -1530,7 +1546,7 @@ class SettingsWindowController: NSObject {
     @objc private func updateAllLists() {
         updateAllBtn.isEnabled = false
         globalStatusLabel.stringValue = "Updating all…"
-        
+
         for (id, spinner) in progressIndicators {
             if ContentBlockerManager.shared.lists.first(where: { $0.id == id })?.enabled == true {
                 spinner.startAnimation(nil)
@@ -1542,7 +1558,7 @@ class SettingsWindowController: NSObject {
         ContentBlockerManager.shared.updateAll(progress: { [weak self] id, ok, reason in
             DispatchQueue.main.async {
                 self?.progressIndicators[id]?.stopAnimation(nil)
-                
+
                 if ok, let info = ContentBlockerManager.shared.lists.first(where: { $0.id == id }), let d = info.lastUpdated {
                     let fmt = DateFormatter(); fmt.dateStyle = .short; fmt.timeStyle = .short
                     self?.statusLabels[id]?.stringValue = "Updated: \(fmt.string(from: d))"
@@ -1561,7 +1577,7 @@ class SettingsWindowController: NSObject {
     // --- Scripts View Building ---
     private func buildScriptsView() {
         scriptsView = NSView(); scriptsView.translatesAutoresizingMaskIntoConstraints = false
-        
+
         let contentStack = NSStackView(); contentStack.orientation = .vertical; contentStack.alignment = .leading; contentStack.spacing = 0
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1569,7 +1585,7 @@ class SettingsWindowController: NSObject {
             let row = buildScriptRow(for: meta)
             contentStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
-            
+
             let sep = NSBox(); sep.boxType = .separator; sep.translatesAutoresizingMaskIntoConstraints = false
             contentStack.addArrangedSubview(sep)
             sep.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
@@ -1589,12 +1605,12 @@ class SettingsWindowController: NSObject {
         importBtn.bezelStyle = .rounded
         let dirBtn = NSButton(title: "Open Folder", target: self, action: #selector(openScriptsFolder))
         dirBtn.bezelStyle = .inline
-        
+
         let bottomBar = NSStackView(views: [dirBtn, importBtn])
         bottomBar.orientation = .horizontal; bottomBar.spacing = 12; bottomBar.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
-        
+
         let sep = NSBox(); sep.boxType = .separator
-        
+
         let root = NSStackView(views: [scrollView, sep, bottomBar])
         root.orientation = .vertical; root.spacing = 0; root.translatesAutoresizingMaskIntoConstraints = false
         scriptsView.addSubview(root)
@@ -1648,20 +1664,20 @@ class SettingsWindowController: NSObject {
         if alert.runModal() == .alertFirstButtonReturn {
             UserScriptManager.shared.deleteScript(filename: filename)
             buildScriptsView()
-            tabChanged(segmentedControl) 
+            tabChanged(segmentedControl)
         }
     }
 
     @objc private func importScript() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
-        
+
         if #available(macOS 11.0, *) {
             if let jsType = UTType(filenameExtension: "js") { panel.allowedContentTypes = [jsType] }
         } else {
             panel.allowedFileTypes = ["js"]
         }
-        
+
         if panel.runModal() == .OK, let url = panel.url {
             UserScriptManager.shared.importScript(from: url)
             buildScriptsView()
@@ -1671,6 +1687,88 @@ class SettingsWindowController: NSObject {
 
     @objc private func openScriptsFolder() {
         NSWorkspace.shared.open(UserScriptManager.shared.scriptsDir)
+    }
+
+    // --- Privacy View Building ---
+    private func buildPrivacyView() {
+        privacyView = NSView(); privacyView.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = NSTextField(labelWithString: "Clear Browsing Data")
+        titleLabel.font = .boldSystemFont(ofSize: 14)
+
+        let descLabel = NSTextField(labelWithString: "Clears your history, cookies, cache, local storage, recently closed tabs, and downloads history.")
+        descLabel.textColor = .secondaryLabelColor
+        descLabel.isSelectable = false
+        descLabel.isEditable = false
+        descLabel.isBordered = false
+        descLabel.drawsBackground = false
+        descLabel.preferredMaxLayoutWidth = 400
+        descLabel.lineBreakMode = .byWordWrapping
+
+        let clearBtn = NSButton(title: "Clear Data...", target: self, action: #selector(confirmClearData))
+        clearBtn.bezelStyle = .push
+        clearBtn.controlSize = .large
+        clearBtn.contentTintColor = .systemRed
+
+        let stack = NSStackView(views: [titleLabel, descLabel, clearBtn])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 15
+        stack.edgeInsets = NSEdgeInsets(top: 30, left: 30, bottom: 30, right: 30)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        privacyView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: privacyView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: privacyView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: privacyView.trailingAnchor)
+        ])
+    }
+
+    @objc private func confirmClearData() {
+        let alert = NSAlert()
+        alert.messageText = "Clear all browsing data?"
+        alert.informativeText = "This will permanently delete your history, cookies, and cache. This action cannot be undone."
+        alert.addButton(withTitle: "Clear Data")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .critical
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            executeDataWipe()
+        }
+    }
+
+    private func executeDataWipe() {
+        // 1. Clear WebKit Data (Cookies, Cache, Local Storage, IndexedDB)
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        let dateFrom = Date(timeIntervalSince1970: 0)
+
+        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: dateFrom) {
+            // 2. Clear App History & Suggestions
+            HistoryManager.shared.clearHistory()
+
+            // 3. Clear Downloads list
+            DownloadManager.shared.clearHistory()
+
+            // 4. Clear Recently Closed Tabs
+            if let appDelegate = NSApp.delegate as? AppDelegate {
+                appDelegate.closedTabs.removeAll()
+            }
+
+            DispatchQueue.main.async {
+                let successAlert = NSAlert()
+                successAlert.messageText = "Data Cleared"
+                successAlert.informativeText = "Your browsing data has been successfully removed."
+                successAlert.runModal()
+            }
+        }
+    }
+
+    // Helper for Menu Navigation
+    func selectPrivacyTab() {
+        showSettings()
+        segmentedControl.selectedSegment = 4
+        tabChanged(segmentedControl)
     }
 }
 
@@ -1687,7 +1785,7 @@ class FaviconManager {
         guard let url = URL(string: iconURLString) else { completion(nil); return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 5.0;
-        
+
         ProxyManager.shared.getURLSession().dataTask(with: request) { data, response, _ in
             if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode), let data = data, let original = NSImage(data: data) {
                 original.size = NSSize(width: 14, height: 14)
@@ -1792,7 +1890,7 @@ class URLBar: NSTextField {
         fullURL = urlStr
         if alwaysShowFullURL { stringValue = urlStr; alignment = .left; return }
         alignment = .center
-        if let host = URL(string: urlStr)?.host { stringValue = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host } 
+        if let host = URL(string: urlStr)?.host { stringValue = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
         else { stringValue = urlStr.isEmpty ? "" : urlStr }
     }
 
@@ -1909,15 +2007,15 @@ class FindBarView: NSView, NSTextFieldDelegate {
 
 class FindBarMessageHandler: NSObject, WKScriptMessageHandler {
     static let shared = FindBarMessageHandler()
-    
+
     private override init() { super.init() }
-    
+
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? String,
               let webView = message.webView,
               let delegate = NSApp.delegate as? AppDelegate,
               let tab = delegate.tabs.first(where: { $0.webView === webView }) else { return }
-        
+
         DispatchQueue.main.async {
             switch body {
             case "show": tab.showFindBar()
@@ -1939,7 +2037,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     var window: NSWindow!; var webView: BrowserWebView!; var urlField: URLBar!; var downloadBtn: NSButton!
     private var rootContainer: NSView!; private var blurView: NSVisualEffectView?; private var solidBackgroundBox: NSBox?
     let isPrivate: Bool; let isPopup: Bool; let sessionID: String?
-    weak var openerWindow: NSWindow? 
+    weak var openerWindow: NSWindow?
 
     private var currentManagedUA: String? = nil
     var urlObserver: NSKeyValueObservation?; var titleObserver: NSKeyValueObservation?
@@ -1970,9 +2068,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         var video = document.querySelector('video');
 
         // 2. If the native skip button is clickable, click it
-        if (skipBtn) { 
-            skipBtn.click(); 
-            return; 
+        if (skipBtn) {
+            skipBtn.click();
+            return;
         }
 
         // 3. Unskippable ad handling
@@ -1981,7 +2079,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             video.muted = true;
             video.playbackRate = 16.0;
 
-            // Jump to 0.5 seconds before the end. 
+            // Jump to 0.5 seconds before the end.
             // This allows YouTube's own scripts to detect the end of the ad normally and avoids crashing the player.
             if (!isNaN(video.duration) && video.currentTime < video.duration - 0.5) {
                 video.currentTime = video.duration - 0.5;
@@ -2021,13 +2119,13 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         super.init()
 
         window = NSWindow(contentRect: NSMakeRect(0, 0, 1200, 800), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        window.minSize = NSSize(width: 450, height: 250); window.titleVisibility = .hidden 
+        window.minSize = NSSize(width: 450, height: 250); window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true; window.center(); window.isReleasedWhenClosed = false
         window.tabbingMode = isPopup ? .disallowed : .automatic
-        
-        if let parent = parentWindow, !isPopup { window.tabbingIdentifier = parent.tabbingIdentifier } 
+
+        if let parent = parentWindow, !isPopup { window.tabbingIdentifier = parent.tabbingIdentifier }
         else { window.tabbingIdentifier = isPrivate ? "private-\(UUID().uuidString)" : "standard-\(UUID().uuidString)" }
-        
+
         window.title = isPrivate ? "🔒 SwiftBrowse" : "SwiftBrowse"
         if parentWindow == nil && !isPopup { window.setFrameAutosaveName("SwiftBrowseMainWindow") }
         window.delegate = self
@@ -2045,9 +2143,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         rightGroup = NSStackView(views: [newTabBtn, shieldBtn, dlBtn]); rightGroup.orientation = .horizontal; rightGroup.spacing = 8; rightGroup.translatesAutoresizingMaskIntoConstraints = false
 
         urlField = URLBar(); urlField.delegate = self; urlField.font = .systemFont(ofSize: 13); urlField.alignment = .center; urlField.translatesAutoresizingMaskIntoConstraints = false
-        
+
         if isPopup { urlField.isEditable = false; urlField.isSelectable = true; urlField.alwaysShowFullURL = true; urlField.textColor = .labelColor }
-        
+
         let placeholderText = isPrivate ? "Search privately…" : "Search or enter website name…"
         let searchIconCfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         if let searchImg = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?.withSymbolConfiguration(searchIconCfg) {
@@ -2062,9 +2160,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
 
         pillWrapper = PillWrapperView(); pillWrapper.translatesAutoresizingMaskIntoConstraints = false
         pillIcon = NSImageView(); pillIcon.translatesAutoresizingMaskIntoConstraints = false; pillIcon.imageScaling = .scaleProportionallyUpOrDown; pillIcon.isHidden = true
-        
+
         pillWrapper.addSubview(pillIcon); pillWrapper.addSubview(urlField)
-        
+
         urlLeadingToIcon = urlField.leadingAnchor.constraint(equalTo: pillIcon.trailingAnchor, constant: 5)
         urlLeadingToPill = urlField.leadingAnchor.constraint(equalTo: pillWrapper.leadingAnchor, constant: 10)
         urlLeadingToIcon.isActive = false; urlLeadingToPill.isActive = true
@@ -2075,7 +2173,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             pillIcon.widthAnchor.constraint(equalToConstant: 14), pillIcon.heightAnchor.constraint(equalToConstant: 14),
             urlField.centerYAnchor.constraint(equalTo: pillWrapper.centerYAnchor), urlField.trailingAnchor.constraint(equalTo: pillWrapper.trailingAnchor, constant: -10),
         ])
-        
+
         urlField.onFocusChanged = { [weak self] focused in if focused { self?.showEditingIcon() } }
 
         if !isPopup {
@@ -2146,8 +2244,8 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             ])
             popupTopBar = bar; rootContainer.addSubview(bar)
         }
-        
-        if isPrivate { window.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1.0) } 
+
+        if isPrivate { window.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 1.0) }
         else {
             window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = true
             let bv = NSVisualEffectView(); bv.material = .underWindowBackground; bv.blendingMode = .behindWindow; bv.state = .active; bv.translatesAutoresizingMaskIntoConstraints = false
@@ -2163,36 +2261,36 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                 sb.leadingAnchor.constraint(equalTo: rootContainer.leadingAnchor), sb.trailingAnchor.constraint(equalTo: rootContainer.trailingAnchor)
             ])
         }
-        
+
         webView.translatesAutoresizingMaskIntoConstraints = false; rootContainer.addSubview(webView)
         let webViewTopAnchor = popupTopBar?.bottomAnchor ?? rootContainer.topAnchor
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: webViewTopAnchor), webView.bottomAnchor.constraint(equalTo: rootContainer.bottomAnchor),
             webView.leadingAnchor.constraint(equalTo: rootContainer.leadingAnchor), webView.trailingAnchor.constraint(equalTo: rootContainer.trailingAnchor)
         ])
-        
+
         // Native Splash View to avoid WebKit HTML render flashes entirely
         let splash = NSView(); splash.translatesAutoresizingMaskIntoConstraints = false
         splash.wantsLayer = true
         splash.layer?.backgroundColor = isPrivate ? NSColor(calibratedWhite: 0.12, alpha: 1.0).cgColor : NSColor.clear.cgColor
         splash.isHidden = true
-        
+
         let titleLabel = NSTextField(labelWithString: "SwiftBrowse")
         titleLabel.font = .systemFont(ofSize: 48, weight: .bold)
         titleLabel.textColor = .white
         titleLabel.isEditable = false; titleLabel.isBordered = false; titleLabel.drawsBackground = false
         titleLabel.alignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        
+
         let subtitleLabel = NSTextField(labelWithString: isPrivate ? "Private session active — no history will be saved." : "Ready for unmanaged execution.")
         subtitleLabel.font = .systemFont(ofSize: 16)
         subtitleLabel.textColor = NSColor(calibratedWhite: 0.62, alpha: 1.0)
         subtitleLabel.isEditable = false; subtitleLabel.isBordered = false; subtitleLabel.drawsBackground = false
         subtitleLabel.alignment = .center
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        
+
         splash.addSubview(titleLabel); splash.addSubview(subtitleLabel)
-        
+
         rootContainer.addSubview(splash)
         NSLayoutConstraint.activate([
             splash.topAnchor.constraint(equalTo: webViewTopAnchor), splash.bottomAnchor.constraint(equalTo: rootContainer.bottomAnchor),
@@ -2203,11 +2301,11 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10)
         ])
         self.splashOverlay = splash
-        
+
         if let topBar = popupTopBar {
             NSLayoutConstraint.activate([
                 topBar.topAnchor.constraint(equalTo: rootContainer.topAnchor), topBar.leadingAnchor.constraint(equalTo: rootContainer.leadingAnchor),
-                topBar.trailingAnchor.constraint(equalTo: rootContainer.trailingAnchor), topBar.heightAnchor.constraint(equalToConstant: 44) 
+                topBar.trailingAnchor.constraint(equalTo: rootContainer.trailingAnchor), topBar.heightAnchor.constraint(equalToConstant: 44)
             ])
         }
 
@@ -2218,7 +2316,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                 guard let self else { return }
                 let urlStr = wv.url?.absoluteString ?? ""
                 let isBlank = urlStr.isEmpty || urlStr.starts(with: "about:blank")
-                
+
                 if !self.isPrivate {
                     if isBlank {
                         // Returning to blank/splash — restore transparent mode
@@ -2233,12 +2331,12 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                         self.blurView?.isHidden = true; self.solidBackgroundBox?.isHidden = true
                     }
                 }
-                
+
                 if wv.url?.host != URL(string: self.urlField.fullURL)?.host { self.currentFavicon = nil }
                 self.syncTabTitleAndIcon()
-                
+
                 if isBlank { return }
-                
+
                 let isEditing = self.window.firstResponder is NSTextView && self.window.firstResponder === self.urlField.currentEditor()
                 if !isEditing { self.urlField.displayIdleURL(urlStr); self.hideEditingIcon() }
                 if !self.isPrivate { HistoryManager.shared.addVisit(urlStr) }
@@ -2266,9 +2364,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                 guard let self else { return }
                 let urlStr = wv.url?.absoluteString ?? ""
                 let isBlank = urlStr.isEmpty || urlStr.starts(with: "about:blank")
-                
+
                 if self.isPopup && !isBlank { self.urlField.displayIdleURL(urlStr) }
-                
+
                 if wv.isLoading {
                     if !isBlank {
                         if wv.estimatedProgress < 0.1 { self.pillWrapper.progress = 0.1 }
@@ -2285,7 +2383,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
 
         if let parent = parentWindow, !isPopup {
             let existing = parent.tabGroup?.windows ?? [parent]
-            if let index = targetIndex, index < existing.count { existing[index].addTabbedWindow(window, ordered: .above) } 
+            if let index = targetIndex, index < existing.count { existing[index].addTabbedWindow(window, ordered: .above) }
             else { (existing.last ?? parent).addTabbedWindow(window, ordered: .above) }
         } else { if showSplash { window.makeKeyAndOrderFront(nil) } }
 
@@ -2294,8 +2392,8 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             if let initialURL = self.webView.url?.absoluteString, !initialURL.isEmpty, !initialURL.starts(with: "about:blank") { self.urlField.displayIdleURL(initialURL) }
             if focusURL && !isPopup { self.window.makeKeyAndOrderFront(nil); self.window.makeFirstResponder(self.urlField); self.urlField.currentEditor()?.selectAll(nil) }
         }
-        
-        if showSplash && !isPopup { showSplashPage() } 
+
+        if showSplash && !isPopup { showSplashPage() }
         else {
             if !isPrivate {
                 window.isOpaque = true; window.backgroundColor = .windowBackgroundColor
@@ -2303,15 +2401,15 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                 webView.setValue(true, forKey: "drawsBackground")
             }
         }
-        
+
         NotificationCenter.default.addObserver(self, selector: #selector(setupUserScripts), name: .reloadBrowserScripts, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(applyProxySettings), name: .proxySettingsChanged, object: nil)
     }
-    
+
     @objc func applyProxySettings() {
         ProxyManager.shared.apply(to: webView.configuration.websiteDataStore)
     }
-    
+
     @objc func setupUserScripts() {
         let ucc = webView.configuration.userContentController
         ucc.removeAllUserScripts()
@@ -2492,9 +2590,9 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             }
         }
     }
-    
+
     private func syncTabTitleAndIcon() {
-        let t = window.title; let tab = window.tab 
+        let t = window.title; let tab = window.tab
         let textAttrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.labelColor]
         if let img = currentFavicon {
             let attachment = NSTextAttachment(); attachment.image = img; attachment.bounds = NSRect(x: 0, y: -2, width: 14, height: 14)
@@ -2503,21 +2601,21 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
             tab.attributedTitle = attrStr
         } else { tab.attributedTitle = NSAttributedString(string: t, attributes: textAttrs) }
     }
-    
+
     private func showEditingIcon() {
         let iconCfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         let urlStr = webView.url?.absoluteString ?? ""
         let isBlank = urlStr.isEmpty || urlStr.starts(with: "about:blank")
-        
-        if isBlank { pillIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?.withSymbolConfiguration(iconCfg); pillIcon.contentTintColor = .secondaryLabelColor } 
-        else if let fav = currentFavicon { pillIcon.image = fav; pillIcon.contentTintColor = nil } 
+
+        if isBlank { pillIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?.withSymbolConfiguration(iconCfg); pillIcon.contentTintColor = .secondaryLabelColor }
+        else if let fav = currentFavicon { pillIcon.image = fav; pillIcon.contentTintColor = nil }
         else { pillIcon.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?.withSymbolConfiguration(iconCfg); pillIcon.contentTintColor = .secondaryLabelColor }
-        
+
         pillIcon.isHidden = false; urlLeadingToPill.isActive = false; urlLeadingToIcon.isActive = true
         urlField.placeholderAttributedString = nil; urlField.placeholderString = isPrivate ? "Search privately…" : "Search or enter website name…"
         pillWrapper.needsLayout = true
     }
-    
+
     private func hideEditingIcon() {
         pillIcon.isHidden = true; urlLeadingToIcon.isActive = false; urlLeadingToPill.isActive = true
         let placeholderText = isPrivate ? "Search privately…" : "Search or enter website name…"
@@ -2577,16 +2675,16 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         if let url = webView.url?.absoluteString, let group = window.tabGroup, let idx = group.windows.firstIndex(of: window) {
             app.closedTabs.append(ClosedTab(url: url, index: idx, isPrivate: isPrivate, sessionID: sessionID))
         }
-        
+
         let isSelected = (window.tabGroup?.selectedWindow == window) || window.tabGroup == nil
         let opener = self.openerWindow
         let closedImmediately = webView.backForwardList.backList.isEmpty
-        
+
         urlObserver = nil; titleObserver = nil; progressObserver = nil; loadingObserver = nil
         NotificationCenter.default.removeObserver(self)
         window.delegate = nil; webView.navigationDelegate = nil; webView.uiDelegate = nil
         let target = self.window
-        
+
         DispatchQueue.main.async {
             app.tabs.removeAll { $0.window == target }
             if let sid = self.sessionID { if !app.tabs.contains(where: { $0.sessionID == sid }) { app.privateStores.removeValue(forKey: sid) } }
@@ -2614,7 +2712,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let raw = self.webView.url?.absoluteString ?? ""
-            if !raw.isEmpty && !raw.hasPrefix("about:blank") { self.urlField.displayIdleURL(raw) } 
+            if !raw.isEmpty && !raw.hasPrefix("about:blank") { self.urlField.displayIdleURL(raw) }
             else { self.urlField.clearForBlankPage() }
             self.hideEditingIcon()
         }
@@ -2623,12 +2721,12 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
         if sel == #selector(NSResponder.insertNewline(_:)) {
             var input = urlField.stringValue
-            if !input.contains(".") && !input.contains("://") { input = "https://duckduckgo.com/?q=\(input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" } 
+            if !input.contains(".") && !input.contains("://") { input = "https://duckduckgo.com/?q=\(input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")" }
             else if !input.lowercased().hasPrefix("http") { input = "https://" + input }
             if let url = URL(string: input) {
-                if isSplashVisible { 
+                if isSplashVisible {
                     isSplashVisible = false
-                    splashOverlay?.isHidden = true 
+                    splashOverlay?.isHidden = true
                 }
                 urlField.stringValue = url.absoluteString; webView.load(URLRequest(url: url))
             }
@@ -2650,10 +2748,10 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
                 self.currentManagedUA = desiredUA
                 webView.customUserAgent = desiredUA
                 decisionHandler(.cancel)
-                
+
                 var newRequest = action.request
                 newRequest.setValue(nil, forHTTPHeaderField: "User-Agent")
-                
+
                 DispatchQueue.main.async {
                     self.webView.load(newRequest)
                 }
@@ -2873,7 +2971,7 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         guard let part = partURL, let final = finalURL else { DownloadManager.shared.markFailed(for: download); return }
         let fm = FileManager.default
         try? fm.removeItem(at: final)
-        do { try fm.moveItem(at: part, to: final); DownloadManager.shared.markComplete(at: final, for: download) } 
+        do { try fm.moveItem(at: part, to: final); DownloadManager.shared.markComplete(at: final, for: download) }
         catch { DownloadManager.shared.markFailed(for: download) }
     }
 
@@ -2888,21 +2986,21 @@ class BrowserTab: NSObject, NSTextFieldDelegate, WKNavigationDelegate, WKUIDeleg
         let app = NSApplication.shared.delegate as! AppDelegate
         ProxyManager.shared.apply(to: configuration.websiteDataStore)
         if windowFeatures.width != nil || windowFeatures.height != nil {
-            let popupTab = BrowserTab(parentWindow: nil, isPrivate: self.isPrivate, sessionID: self.sessionID, dataStore: configuration.websiteDataStore, configuration: configuration, focusURL: false, showSplash: false, isPopup: true) 
+            let popupTab = BrowserTab(parentWindow: nil, isPrivate: self.isPrivate, sessionID: self.sessionID, dataStore: configuration.websiteDataStore, configuration: configuration, focusURL: false, showSplash: false, isPopup: true)
             let w = CGFloat(windowFeatures.width?.doubleValue ?? 520); let h = CGFloat(windowFeatures.height?.doubleValue ?? 640)
             popupTab.window.setContentSize(NSSize(width: w, height: h))
-            popupTab.openerWindow = self.window 
+            popupTab.openerWindow = self.window
             popupTab.window.makeKeyAndOrderFront(nil)
             app.tabs.append(popupTab)
             return popupTab.webView
         }
-        
-        let newTab = BrowserTab(parentWindow: self.window, isPrivate: self.isPrivate, sessionID: self.sessionID, dataStore: configuration.websiteDataStore, configuration: configuration, focusURL: false, showSplash: false) 
+
+        let newTab = BrowserTab(parentWindow: self.window, isPrivate: self.isPrivate, sessionID: self.sessionID, dataStore: configuration.websiteDataStore, configuration: configuration, focusURL: false, showSplash: false)
         newTab.window.makeKeyAndOrderFront(nil)
         app.tabs.append(newTab)
         return newTab.webView
     }
-    
+
     func webViewDidClose(_ webView: WKWebView) { self.window.close() }
 }
 
@@ -2995,7 +3093,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let win = NSApp.keyWindow else { createNewWindow(); return }
         let winsInGroup = win.tabGroup?.windows ?? [win]
         let isPrivateWindow = tabs.contains { winsInGroup.contains($0.window) && $0.isPrivate }
-        
+
         if isPrivateWindow {
             let sid = existingPrivateSessionID(for: win) ?? UUID().uuidString
             tabs.append(BrowserTab(parentWindow: win, isPrivate: true, sessionID: sid, dataStore: store(for: sid), focusURL: true))
@@ -3042,6 +3140,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let win = NSApp.keyWindow, let tab = tabs.first(where: { $0.window == win }) { tab.reload() }
     }
 
+    @objc func openClearDataMenu() {
+        SettingsWindowController.shared.selectPrivacyTab()
+    }
+
     func setupMenus() {
         let mainMenu = NSMenu()
 
@@ -3067,6 +3169,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         viewMenu.addItem(.separator())
         viewMenu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
         viewItem.submenu = viewMenu
+
+        let historyItem = NSMenuItem(); mainMenu.addItem(historyItem)
+        let historyMenu = NSMenu(title: "History")
+        historyMenu.addItem(NSMenuItem(title: "Clear Browsing Data...", action: #selector(openClearDataMenu), keyEquivalent: "K"))
+        historyItem.submenu = historyMenu
 
         let editItem = NSMenuItem(); mainMenu.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
